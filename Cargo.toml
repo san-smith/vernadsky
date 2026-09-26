@@ -3,6 +3,7 @@ name = "vernadsky"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT OR Apache-2.0"
 description = "Bootstrap crate for the Vernadsky planetary geography generator"
 
 [dependencies]
