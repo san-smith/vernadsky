@@ -1,0 +1,8 @@
+[package]
+name = "vernadsky"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Bootstrap crate for the Vernadsky planetary geography generator"
+
+[dependencies]
