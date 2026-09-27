@@ -33,17 +33,18 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// toolchain), with the default stage configurations and the fixture
 /// territory count.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x149a_9385_7eaf_f761,
-    0x66e5_42bf_a7b3_7c73,
-    0x063c_4c4f_e666_d78b,
-    0x32a7_7564_95c6_2a93,
-    0xda5e_d64e_03dd_f442,
+    0x1790_0e4a_fb60_02ee,
+    0x4c84_9860_3ada_73e7,
+    0xf6bf_2127_30d7_48b0,
+    0x5390_382a_4bc1_92bf,
+    0x01e2_d80c_9b96_d95d,
 ];
 
-/// Fixture grid and partition size of the golden runs.
+/// Fixture grid and partition sizes of the golden runs.
 const GOLDEN_WIDTH: u32 = 48;
 const GOLDEN_HEIGHT: u32 = 32;
-const GOLDEN_COUNT: usize = 12;
+const GOLDEN_LAND_COUNT: usize = 12;
+const GOLDEN_WATER_COUNT: usize = 8;
 
 /// Builds a real-pipeline world partitioned into `GOLDEN_COUNT`
 /// territories.
@@ -61,7 +62,7 @@ fn world_with_territories(seed: u64) -> GeographicWorld {
         .expect("the climate stage succeeds");
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
     hydrology(&mut world).expect("the hydrology stage succeeds");
-    generate(&mut world, GOLDEN_COUNT).expect("the partition succeeds");
+    generate(&mut world, GOLDEN_LAND_COUNT, GOLDEN_WATER_COUNT).expect("the partition succeeds");
     world
 }
 
@@ -92,7 +93,11 @@ fn generation_is_deterministic() {
 fn filled_worlds_round_trip() {
     for seed in MANIFEST_SEEDS {
         let world = world_with_territories(seed);
-        assert_eq!(world.territories.len(), GOLDEN_COUNT, "seed {seed:#018x}");
+        assert_eq!(
+            world.territories.len(),
+            GOLDEN_LAND_COUNT + GOLDEN_WATER_COUNT,
+            "seed {seed:#018x}"
+        );
         assert_eq!(
             GeographicWorld::from_bytes(&world.to_bytes()).expect("valid export"),
             world
