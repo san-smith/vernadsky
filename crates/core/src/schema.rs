@@ -13,7 +13,7 @@
 //! [`GeographicWorld::to_bytes`] for a round-trip example.
 
 use crate::id::{BiomeId, CellId, RegionId, RiverId, TerritoryId, WaterBodyId};
-use crate::quant::{HeightM, HumidDeciPct, NatPotential, PrecipMmYr, TempDeciC};
+use crate::quant::{CentiScalar, HeightM, HumidDeciPct, NatPotential, PrecipMmYr, TempDeciC};
 
 /// Schema version written by this crate. Any change to the meaning of an
 /// existing field bumps this value.
@@ -26,13 +26,44 @@ pub const NO_INDEX: u32 = u32::MAX;
 /// Parameters that, together with the generator version and its seed,
 /// allow reproducing the world. Stage-specific parameters are added here
 /// (with a `params_version` bump) as stages come online.
+///
+/// The version is derived from the structure: `0` is the bare
+/// `{ seed }` layout of worlds generated before any stage parameters
+/// existed, `1` adds the [`GenerationParams::climate`] block. Writers
+/// derive the version from the presence of the block, readers accept
+/// both and reject unknown versions with a diagnostic.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GenerationParams {
-    /// Version of the parameters structure itself.
+    /// Version of the parameters structure itself: `1` when
+    /// [`GenerationParams::climate`] is present, `0` otherwise.
     pub params_version: u32,
     /// Master seed of the generation. Stored from the start; consumed by
     /// the seeded stages as they come online.
     pub seed: u64,
+    /// Parameters of the climate stage; present from params version 1.
+    pub climate: Option<ClimateParams>,
+}
+
+/// Parameters of the climate stage (params version 1).
+///
+/// Values are stored on integer lattices so that parameters hash and
+/// round-trip canonically like every other exported quantity. The
+/// meaningful semantic domains are enforced by producers (see
+/// `vernadsky-climate`); the lattice types only bound the storage.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClimateParams {
+    /// Global temperature offset applied over the whole planet, in
+    /// tenths of a degree Celsius.
+    pub temperature_offset: TempDeciC,
+    /// Latitude-dependent amplification of the temperature offset, in
+    /// hundredths (conventional domain `0..=300`, i.e. `0..=3`).
+    pub polar_amplification: CentiScalar,
+    /// Compression exponent of the latitudinal temperature profile, in
+    /// hundredths (conventional domain `50..=200`, i.e. `0.5..=2`).
+    pub latitude_exponent: CentiScalar,
+    /// Baseline moisture offset of the humidity field, in hundredths of
+    /// the normalized moisture unit (conventional domain `-40..=40`).
+    pub humidity_offset: CentiScalar,
 }
 
 /// Grid-cell adjacency convention. The convention is part of the contract:

@@ -17,12 +17,13 @@ use std::fmt;
 use crate::id::{BiomeId, CellId, RegionId, RiverId, TerritoryId, WaterBodyId};
 use crate::idgen::{ID_STRATEGY, fnv1a64};
 use crate::quant::{
-    HeightM, HumidDeciPct, LATTICE_REGISTRY_VERSION, NatPotential, PrecipMmYr, TempDeciC,
+    CentiScalar, HeightM, HumidDeciPct, LATTICE_REGISTRY_VERSION, NatPotential, PrecipMmYr,
+    TempDeciC,
 };
 use crate::schema::{
-    Anchor, BiomeSection, CellRecord, ClimateSection, Connectivity, GenerationParams,
-    GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
-    TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
+    GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
+    SCHEMA_VERSION, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 
 /// File magic of the canonical export format.
@@ -184,8 +185,21 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     b.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
     write_str(&mut b, ID_STRATEGY.as_bytes());
     write_str(&mut b, LATTICE_REGISTRY_VERSION.as_bytes());
+    // The params version is derived from the structure: worlds with
+    // climate parameters are version 1, worlds without are version 0.
+    debug_assert_eq!(
+        world.params.params_version,
+        u32::from(world.params.climate.is_some()),
+        "params_version must match the presence of the climate block"
+    );
     b.extend_from_slice(&world.params.params_version.to_le_bytes());
     b.extend_from_slice(&world.params.seed.to_le_bytes());
+    if let Some(climate) = &world.params.climate {
+        b.extend_from_slice(&climate.temperature_offset.0.to_le_bytes());
+        b.extend_from_slice(&climate.polar_amplification.0.to_le_bytes());
+        b.extend_from_slice(&climate.latitude_exponent.0.to_le_bytes());
+        b.extend_from_slice(&climate.humidity_offset.0.to_le_bytes());
+    }
 
     // Grid.
     b.extend_from_slice(&world.grid.width.to_le_bytes());
@@ -297,10 +311,17 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
         return Err(FormatError::UnsupportedLatticeRegistry(registry));
     }
     let params_version = r.take_u32()?;
-    if params_version != 0 {
-        return Err(FormatError::UnsupportedParamsVersion(params_version));
-    }
     let seed = r.take_u64()?;
+    let climate_params = match params_version {
+        0 => None,
+        1 => Some(ClimateParams {
+            temperature_offset: TempDeciC(r.take_i16()?),
+            polar_amplification: CentiScalar(r.take_i16()?),
+            latitude_exponent: CentiScalar(r.take_i16()?),
+            humidity_offset: CentiScalar(r.take_i16()?),
+        }),
+        other => return Err(FormatError::UnsupportedParamsVersion(other)),
+    };
 
     let width = r.take_u32()?;
     let height = r.take_u32()?;
@@ -389,6 +410,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
         params: GenerationParams {
             params_version,
             seed,
+            climate: climate_params,
         },
         grid,
         territories,
@@ -911,6 +933,40 @@ mod tests {
                 section: "temperature",
                 declared: 0
             }
+        );
+    }
+
+    #[test]
+    fn round_trips_climate_parameters() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: 1,
+            seed: 0x5EED,
+            climate: Some(ClimateParams {
+                temperature_offset: TempDeciC(-25),
+                polar_amplification: CentiScalar(150),
+                latitude_exponent: CentiScalar(100),
+                humidity_offset: CentiScalar(30),
+            }),
+        };
+        world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
+        let bytes = world.to_bytes();
+        assert_eq!(from_bytes(&bytes).expect("valid"), world);
+    }
+
+    #[test]
+    fn rejects_unknown_params_version() {
+        let mut bytes = synthetic::minimal_world().to_bytes();
+        // Header layout: magic (4) + schema_version (4) + id strategy
+        // string + lattice registry string, then the params version.
+        let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len();
+        bytes[offset..offset + 4].copy_from_slice(&2u32.to_le_bytes());
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(
+            from_bytes(&bytes),
+            Err(FormatError::UnsupportedParamsVersion(2))
         );
     }
 

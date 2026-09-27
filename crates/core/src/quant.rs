@@ -110,6 +110,15 @@ lattice_newtype! {
     SeedWeight(i32), 0.001
 }
 
+lattice_newtype! {
+    /// Dimensionless scalar in hundredths (`0.01` steps).
+    ///
+    /// Used for generation parameters (amplifications, exponents,
+    /// normalized moisture offsets). The meaningful domain is semantic
+    /// and enforced by producers, not by the lattice type.
+    CentiScalar(i16), 0.01
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

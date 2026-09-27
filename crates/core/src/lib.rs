@@ -55,11 +55,11 @@ pub mod synthetic;
 
 pub use id::{BiomeId, CellId, RegionId, RiverId, TerritoryId, WaterBodyId};
 pub use idgen::{ID_STRATEGY, IdAssigner, IdGenError};
-pub use quant::{LATTICE_REGISTRY_VERSION, QuantError};
+pub use quant::{CentiScalar, LATTICE_REGISTRY_VERSION, QuantError};
 pub use rng::{RNG_STRATEGY, RngStreams};
 pub use schema::{
-    Anchor, BiomeSection, CellRecord, ClimateSection, Connectivity, GenerationParams,
-    GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
-    TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
+    GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
+    SCHEMA_VERSION, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 pub use synthetic::{minimal_world, seeded_world};

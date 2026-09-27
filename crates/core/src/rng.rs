@@ -47,7 +47,7 @@
 //! ```
 
 use rand_chacha::ChaCha8Rng;
-use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::idgen::fnv1a64;
 
@@ -87,6 +87,14 @@ impl RngStreams {
         input.extend_from_slice(name.as_bytes());
         input.extend_from_slice(&self.world_seed.to_le_bytes());
         ChaCha8Rng::seed_from_u64(fnv1a64(&input))
+    }
+
+    /// Fills `out` with the leading bytes of the named stream.
+    ///
+    /// Convenience for stages that only need a few deterministic bytes;
+    /// equivalent to consuming [`RngStreams::stream`] from position zero.
+    pub fn stream_bytes(&self, name: &str, out: &mut [u8]) {
+        self.stream(name).fill_bytes(out);
     }
 }
 
