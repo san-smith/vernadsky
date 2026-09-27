@@ -62,3 +62,4 @@ pub use schema::{
     GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
     TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
+pub use synthetic::{minimal_world, seeded_world};
