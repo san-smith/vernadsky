@@ -219,6 +219,7 @@ pub fn seeded_world(seed: u64) -> GeographicWorld {
         params: GenerationParams {
             params_version: 0,
             seed,
+            climate: None,
         },
         grid: GridSection {
             width: WIDTH,
