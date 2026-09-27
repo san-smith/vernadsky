@@ -15,3 +15,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Restructured the repository into a Cargo workspace with a virtual root manifest: the bootstrap crate moved to `crates/core` as `vernadsky-core`, inheriting version, edition, license, MSRV, and publish policy from workspace metadata, with `unsafe_code = "forbid"` applied workspace-wide. No public API existed before, so nothing breaks.
+- Adopted Rust edition 2024.
