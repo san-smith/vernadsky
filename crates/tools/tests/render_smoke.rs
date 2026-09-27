@@ -3,8 +3,8 @@
 
 use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
 use vernadsky_tools::render::{
-    LAKE_COLOR, LAND_COLOR, Layer, OCEAN_COLOR, RIVER_COLOR, RIVERS_WATER_COLOR, SEA_COLOR,
-    WATER_COLOR, rasterize, zoom,
+    LAKE_COLOR, LAND_COLOR, Layer, NO_TERRITORY_COLOR, OCEAN_COLOR, RIVER_COLOR,
+    RIVERS_WATER_COLOR, SEA_COLOR, WATER_COLOR, rasterize, zoom,
 };
 use vernadsky_tools::{build_world, climate_params_from_toml};
 
@@ -124,6 +124,23 @@ fn rivers_layer_highlights_the_network() {
         .filter(|pixel| **pixel == RIVER_COLOR)
         .count();
     assert!(river_pixels > 0, "the real terrain must carry rivers");
+}
+
+#[test]
+fn territory_layer_covers_the_partitioned_land() {
+    let params = vernadsky_climate::ClimateConfig::default()
+        .to_params()
+        .expect("default config is valid");
+    let world = build_world(0, Some(&params)).expect("pipeline succeeds");
+    let raster = rasterize(&world, Layer::Territory).expect("territories are partitioned");
+    for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
+        let expected = if cell.territory == vernadsky_core::NO_INDEX {
+            NO_TERRITORY_COLOR // unpartitioned surface: the water
+        } else {
+            continue;
+        };
+        assert_eq!(pixel, &expected, "water must stay the background");
+    }
 }
 
 #[test]

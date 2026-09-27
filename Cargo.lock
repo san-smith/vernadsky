@@ -533,6 +533,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vernadsky-territory"
+version = "0.1.0"
+dependencies = [
+ "vernadsky-biome",
+ "vernadsky-climate",
+ "vernadsky-core",
+ "vernadsky-hydrology",
+ "vernadsky-terrain",
+]
+
+[[package]]
 name = "vernadsky-tools"
 version = "0.1.0"
 dependencies = [
@@ -544,6 +555,7 @@ dependencies = [
  "vernadsky-core",
  "vernadsky-hydrology",
  "vernadsky-terrain",
+ "vernadsky-territory",
 ]
 
 [[package]]
