@@ -46,11 +46,13 @@ pub enum Layer {
     Rivers,
     /// Region grouping: territories colored by their region.
     Regions,
+    /// Natural potential of land territories, fixed scale 0…1000 ‰.
+    Potential,
 }
 
 impl Layer {
     /// All layers, in canonical render order.
-    pub const ALL: [Layer; 9] = [
+    pub const ALL: [Layer; 10] = [
         Layer::Height,
         Layer::Water,
         Layer::Temperature,
@@ -60,6 +62,7 @@ impl Layer {
         Layer::Territory,
         Layer::Rivers,
         Layer::Regions,
+        Layer::Potential,
     ];
 
     /// The file stem of the layer: `{out}.{name}.png`.
@@ -74,6 +77,7 @@ impl Layer {
             Layer::Territory => "territory",
             Layer::Rivers => "rivers",
             Layer::Regions => "regions",
+            Layer::Potential => "potential",
         }
     }
 }
@@ -88,6 +92,9 @@ pub const SEA_COLOR: Rgb = [80, 140, 205];
 pub const LAKE_COLOR: Rgb = [120, 175, 225];
 /// River color of the river layer.
 pub const RIVER_COLOR: Rgb = [70, 130, 180];
+/// Natural-potential scale of the potential layer: barren brown to
+/// lush green over 0…1000 permille.
+const POTENTIAL_STOPS: [Stop; 2] = [(0.0, [150, 120, 70]), (1000.0, [70, 150, 70])];
 /// Water shade of the river layer (non-river water cells).
 pub const RIVERS_WATER_COLOR: Rgb = [205, 220, 240];
 /// Land color of the coverage layer.
@@ -225,6 +232,25 @@ pub fn rasterize(world: &GeographicWorld, layer: Layer) -> Option<Raster> {
                         .and_then(|region| region_position.get(&region.0))
                         .map(|&region| categorical(region as u64))
                         .unwrap_or(NO_TERRITORY_COLOR)
+                };
+                pixels.push(pixel);
+            }
+        }
+        Layer::Potential => {
+            // Land territories on a 0…1000 permille gradient; water and
+            // unpartitioned cells stay in the background colors.
+            for cell in cells {
+                let pixel = if cell.is_water {
+                    RIVERS_WATER_COLOR
+                } else if cell.territory == NO_INDEX {
+                    NO_TERRITORY_COLOR
+                } else {
+                    let permille = f64::from(
+                        world.territories[cell.territory as usize]
+                            .natural_potential
+                            .0,
+                    );
+                    gradient(&POTENTIAL_STOPS, permille)
                 };
                 pixels.push(pixel);
             }

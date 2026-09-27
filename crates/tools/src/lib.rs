@@ -51,6 +51,7 @@ pub fn build_world(seed: u64, climate: Option<&ClimateParams>) -> anyhow::Result
         )
         .context("territory stage failed")?;
         vernadsky_territory::generate_regions(&mut world).context("regions failed")?;
+        vernadsky_export::enrich(&mut world).context("enrichment failed")?;
     }
     Ok(world)
 }
