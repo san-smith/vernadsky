@@ -4,7 +4,7 @@ Vernadsky is a reusable Rust generator for physical planetary geography. Its out
 
 ## Status
 
-Cargo workspace with `crates/core` (`vernadsky-core`), `crates/terrain` (`vernadsky-terrain`), `crates/climate` (`vernadsky-climate`), `crates/biome` (`vernadsky-biome`), `crates/hydrology` (`vernadsky-hydrology`), and `crates/tools` (`vernadsky-tools`, the debug CLI); further crates (`hydrology`, `export`) are extracted when there is real content, never as placeholder APIs. Schema `GeographicWorld` v0 with the canonical binary export format lives in `vernadsky-core`; see the crate rustdoc. Keep the root buildable and testable at every commit.
+Cargo workspace with `crates/core` (`vernadsky-core`), `crates/terrain` (`vernadsky-terrain`), `crates/climate` (`vernadsky-climate`), `crates/biome` (`vernadsky-biome`), `crates/hydrology` (`vernadsky-hydrology`), `crates/territory` (`vernadsky-territory`), and `crates/tools` (`vernadsky-tools`, the debug CLI); further crates (`hydrology`, `export`) are extracted when there is real content, never as placeholder APIs. Schema `GeographicWorld` v0 with the canonical binary export format lives in `vernadsky-core`; see the crate rustdoc. Keep the root buildable and testable at every commit.
 
 Terminology: the generator's base partition unit is a **Territory** — a neutral geographic unit without gameplay semantics. Game concepts such as Province, State, or SeaZone are consumer-side constructs built from territories and cells.
 

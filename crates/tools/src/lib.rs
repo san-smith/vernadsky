@@ -20,10 +20,12 @@ use vernadsky_core::{GeographicWorld, RngStreams};
 /// Grid dimensions of the tool's worlds (the fixture pipeline size).
 pub const FIXTURE_WIDTH: u32 = 48;
 pub const FIXTURE_HEIGHT: u32 = 32;
+/// Territory count of the tool's worlds.
+pub const FIXTURE_TERRITORY_COUNT: usize = 12;
 
 /// Builds a real-pipeline world for `seed`: skeleton grid, terrain with
-/// erosion, then — when `climate` is `Some` — the climate, biome, and
-/// hydrology stages.
+/// erosion, then — when `climate` is `Some` — the climate, biome,
+/// hydrology, and territory partition stages.
 ///
 /// This mirrors the current generation pipeline; the resulting world is
 /// the same one the export files carry.
@@ -40,6 +42,8 @@ pub fn build_world(seed: u64, climate: Option<&ClimateParams>) -> anyhow::Result
         vernadsky_biome::generate(&mut world, &RngStreams::new(seed))
             .context("biome stage failed")?;
         vernadsky_hydrology::generate(&mut world).context("hydrology stage failed")?;
+        vernadsky_territory::generate(&mut world, FIXTURE_TERRITORY_COUNT)
+            .context("territory stage failed")?;
     }
     Ok(world)
 }

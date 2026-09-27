@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/climate", "crates/biome", "crates/hydrology", "crates/terrain", "crates/tools"]
+members = ["crates/core", "crates/climate", "crates/biome", "crates/hydrology", "crates/terrain", "crates/territory", "crates/tools"]
 
 [workspace.package]
 version = "0.1.0"
