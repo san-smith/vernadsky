@@ -23,25 +23,58 @@ pub const SCHEMA_VERSION: u32 = 0;
 /// array-index sentinel, distinct from the reserved identifier value `0`.
 pub const NO_INDEX: u32 = u32::MAX;
 
+/// Parameters of the terrain stage (params version 2).
+///
+/// Values are stored on integer lattices so that parameters hash and
+/// round-trip canonically like every other exported quantity. The
+/// meaningful semantic domains are enforced by producers (see
+/// `vernadsky-terrain`); the lattice types only bound the storage.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TerrainParams {
+    /// Erosion configuration; `None` when the profile runs without
+    /// erosion.
+    pub erosion: Option<ErosionParams>,
+}
+
+/// Hydraulic erosion tuning (the thermal pass is deterministic and
+/// keeps port constants).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ErosionParams {
+    /// Water drops per hundred cells of the grid, in hundredths
+    /// (the port convention is one percent of the map area).
+    pub droplets_per_hundred_cells: CentiScalar,
+    /// Erosion intensity of a droplet step, in hundredths
+    /// (port convention 0.01–0.05).
+    pub power: CentiScalar,
+    /// Thermal talus angle: the height difference (in meters) above
+    /// which material slides to a neighbor.
+    pub talus: HeightM,
+}
+
 /// Parameters that, together with the generator version and its seed,
 /// allow reproducing the world. Stage-specific parameters are added here
 /// (with a `params_version` bump) as stages come online.
 ///
 /// The version is derived from the structure: `0` is the bare
 /// `{ seed }` layout of worlds generated before any stage parameters
-/// existed, `1` adds the [`GenerationParams::climate`] block. Writers
-/// derive the version from the presence of the block, readers accept
-/// both and reject unknown versions with a diagnostic.
+/// existed, `1` adds the [`GenerationParams::climate`] block, `2` adds
+/// the block-presence flags and the [`GenerationParams::terrain`]
+/// block. Writers derive the version from the present blocks, readers
+/// accept every known version and reject unknown ones with a
+/// diagnostic.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GenerationParams {
-    /// Version of the parameters structure itself: `1` when
-    /// [`GenerationParams::climate`] is present, `0` otherwise.
+    /// Version of the parameters structure itself: `2` when the terrain
+    /// block is present, `1` when only the climate block is, `0` for the
+    /// bare seed.
     pub params_version: u32,
     /// Master seed of the generation. Stored from the start; consumed by
     /// the seeded stages as they come online.
     pub seed: u64,
     /// Parameters of the climate stage; present from params version 1.
     pub climate: Option<ClimateParams>,
+    /// Parameters of the terrain stage; present from params version 2.
+    pub terrain: Option<TerrainParams>,
 }
 
 /// Parameters of the climate stage (params version 1).

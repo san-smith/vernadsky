@@ -3,7 +3,8 @@
 
 use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
 use vernadsky_tools::render::{
-    LAND_COLOR, Layer, OCEAN_COLOR, RIVER_COLOR, WATER_COLOR, rasterize, zoom,
+    LAKE_COLOR, LAND_COLOR, Layer, OCEAN_COLOR, RIVER_COLOR, RIVERS_WATER_COLOR, SEA_COLOR,
+    WATER_COLOR, rasterize, zoom,
 };
 use vernadsky_tools::{build_world, climate_params_from_toml};
 
@@ -92,13 +93,17 @@ fn biome_layer_uses_registry_colors() {
 fn water_layer_shades_by_water_body_kind() {
     let world = build_world(0, None).expect("pipeline succeeds");
     let raster = rasterize(&world, Layer::Water).expect("water always renders");
-    // The fixture world is a single polar-connected ocean: every water
-    // cell carries the ocean shade.
     for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
-        let expected = if cell.is_water {
-            OCEAN_COLOR
-        } else {
+        let expected = if !cell.is_water {
             LAND_COLOR
+        } else if cell.water_body == vernadsky_core::NO_INDEX {
+            continue;
+        } else {
+            match world.water_bodies[cell.water_body as usize].kind {
+                vernadsky_core::WaterBodyKind::Ocean => OCEAN_COLOR,
+                vernadsky_core::WaterBodyKind::Sea => SEA_COLOR,
+                vernadsky_core::WaterBodyKind::Lake => LAKE_COLOR,
+            }
         };
         assert_eq!(pixel, &expected);
     }
@@ -106,14 +111,19 @@ fn water_layer_shades_by_water_body_kind() {
 
 #[test]
 fn rivers_layer_highlights_the_network() {
-    let world = build_world(0, None).expect("pipeline succeeds");
+    // Seed 0's real terrain stays below the river threshold; seed 42
+    // carries a network.
+    let params = vernadsky_climate::ClimateConfig::default()
+        .to_params()
+        .expect("default config is valid");
+    let world = build_world(42, Some(&params)).expect("pipeline succeeds");
     let raster = rasterize(&world, Layer::Rivers).expect("rivers always render");
     let river_pixels = raster
         .pixels
         .iter()
         .filter(|pixel| **pixel == RIVER_COLOR)
         .count();
-    assert!(river_pixels > 0, "the synthetic island must carry rivers");
+    assert!(river_pixels > 0, "the real terrain must carry rivers");
 }
 
 #[test]
@@ -135,7 +145,11 @@ fn built_world_dump_round_trips() {
         .expect("default config is valid");
     let world = build_world(42, Some(&params)).expect("pipeline succeeds");
     let bytes = world.to_bytes();
-    assert_eq!(world.params.params_version, 1, "climate parameters applied");
+    assert_eq!(
+        world.params.params_version, 2,
+        "terrain and climate applied"
+    );
+    assert!(world.params.terrain.is_some(), "terrain parameters applied");
     let decoded = GeographicWorld::from_bytes(&bytes).expect("valid export");
     assert_eq!(decoded, world);
     assert_eq!(decoded.content_hash(), world.content_hash());

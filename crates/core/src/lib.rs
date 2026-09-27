@@ -58,8 +58,8 @@ pub use idgen::{ID_STRATEGY, IdAssigner, IdGenError};
 pub use quant::{CentiScalar, LATTICE_REGISTRY_VERSION, QuantError};
 pub use rng::{RNG_STRATEGY, RngStreams};
 pub use schema::{
-    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
+    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity, ErosionParams,
     GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
-    SCHEMA_VERSION, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
-pub use synthetic::{minimal_world, seeded_world};
+pub use synthetic::{minimal_world, seeded_world, skeleton_world};
