@@ -8,7 +8,7 @@
 //! Identifier values are derived by the strategy declared in the export
 //! header (see [`crate::idgen`]) and must not be synthesized by hand.
 //!
-//! Debug and [`Display`] render a kind-prefixed hexadecimal value
+//! Debug and `Display` render a kind-prefixed hexadecimal value
 //! (`t:1a2b`, `r:…`, `w:…`, `v:…`, `c:…`, `b:…`) for readable logs.
 
 use std::fmt;

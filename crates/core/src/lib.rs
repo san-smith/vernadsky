@@ -1,9 +1,22 @@
 //! Vernadsky core: seeded planetary geography generation.
 //!
-//! The generator core — the `GeographicWorld` schema, the generation
-//! pipeline, and the versioned export — is developed in this crate. It
-//! intentionally defines no public geography API yet; nothing here is stable
-//! before the schema is frozen and versioned.
+//! This crate owns the `GeographicWorld` schema (version 0) and its
+//! canonical binary export format. Generation stages are being ported
+//! incrementally; the schema they fill is already the frozen contract.
+//!
+//! # Layout
+//!
+//! - [`quant`]: integer lattices for physical quantities; the only place
+//!   where floats are converted to exported values.
+//! - [`id`]: typed identifier spaces (cells, territories, regions, water
+//!   bodies, rivers, biomes) with reserved zero values.
+//! - [`idgen`]: the `content-hash-v1` derivation strategy — FNV-1a 64 over
+//!   a canonical little-endian anchor encoding, deterministic collision
+//!   probing.
+//! - [`schema`]: the `GeographicWorld` data contract.
+//! - [`mod@format`]: canonical binary serialization, decoding, and validation.
+//! - [`synthetic`]: a deterministic minimal world constructor used by the
+//!   golden round-trip tests.
 //!
 //! # Invariants
 //!
@@ -13,9 +26,37 @@
 //!   scheduling, or external entropy.
 //! - Results never depend on hash-map iteration order; ordered structures
 //!   and stable identifiers are used instead.
+//! - Physical quantities cross stage boundaries and the export only as
+//!   lattice values ([`quant`]); identifiers are derived only through
+//!   [`idgen`].
 //! - The crate contains no `unsafe` code; this is enforced by the workspace
 //!   lints, not by convention.
+//!
+//! # Round-trip example
+//!
+//! ```
+//! use vernadsky_core::{synthetic, GeographicWorld};
+//!
+//! let world = synthetic::minimal_world();
+//! let bytes = world.to_bytes();
+//!
+//! let decoded = GeographicWorld::from_bytes(&bytes).expect("valid export");
+//! assert_eq!(decoded, world);
+//! assert_eq!(decoded.to_bytes(), bytes);
+//! ```
 
+pub mod format;
 pub mod id;
 pub mod idgen;
 pub mod quant;
+pub mod schema;
+pub mod synthetic;
+
+pub use id::{BiomeId, CellId, RegionId, RiverId, TerritoryId, WaterBodyId};
+pub use idgen::{ID_STRATEGY, IdAssigner, IdGenError};
+pub use quant::{LATTICE_REGISTRY_VERSION, QuantError};
+pub use schema::{
+    Anchor, BiomeSection, CellRecord, ClimateSection, Connectivity, GenerationParams,
+    GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
+    TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+};

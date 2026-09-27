@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `GeographicWorld` schema v0 in `vernadsky-core`: the frozen data contract with typed lattice values and stable identifiers (`content-hash-v1`), a canonical little-endian binary export format with content hashing and a validating reader, and a deterministic synthetic world constructor backing golden round-trip tests.
 - Bootstrap crate scaffold: package metadata, dual MIT or Apache-2.0 license, and a committed `Cargo.lock` for reproducible builds.
 - CI on GitHub Actions: rustfmt, clippy, rustdoc, and tests on a pinned toolchain, plus a guard against references to private repositories.
 - `AGENTS.md` describing scope, core invariants, and dependency policy.
