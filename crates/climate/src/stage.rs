@@ -239,10 +239,15 @@ pub fn generate(
             .push(PrecipMmYr::try_from_value(millimeters).map_err(ClimateError::Quantization)?);
     }
 
+    // The climate block is installed without clobbering the terrain
+    // block: stages compose, and the params version tracks the present
+    // blocks (2 when terrain ran first, 1 otherwise).
+    let terrain = world.params.terrain.clone();
     world.params = GenerationParams {
-        params_version: 1,
+        params_version: if terrain.is_some() { 2 } else { 1 },
         seed: world.params.seed,
         climate: Some(params.clone()),
+        terrain,
     };
     world.climate = ClimateSection {
         temperature: Some(temperature),

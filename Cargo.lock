@@ -519,6 +519,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vernadsky-terrain"
+version = "0.1.0"
+dependencies = [
+ "fastnoise-lite",
+ "rand_chacha",
+ "serde",
+ "toml",
+ "vernadsky-biome",
+ "vernadsky-climate",
+ "vernadsky-core",
+ "vernadsky-hydrology",
+]
+
+[[package]]
 name = "vernadsky-tools"
 version = "0.1.0"
 dependencies = [
@@ -529,6 +543,7 @@ dependencies = [
  "vernadsky-climate",
  "vernadsky-core",
  "vernadsky-hydrology",
+ "vernadsky-terrain",
 ]
 
 [[package]]

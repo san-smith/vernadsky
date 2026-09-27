@@ -15,16 +15,25 @@ pub mod render;
 use anyhow::Context;
 
 use vernadsky_core::schema::ClimateParams;
-use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
+use vernadsky_core::{GeographicWorld, RngStreams};
 
-/// Builds a synthetic world for `seed`, optionally applying the climate,
-/// biome, and hydrology stages (the default configuration unless
-/// overridden).
+/// Grid dimensions of the tool's worlds (the fixture pipeline size).
+pub const FIXTURE_WIDTH: u32 = 48;
+pub const FIXTURE_HEIGHT: u32 = 32;
+
+/// Builds a real-pipeline world for `seed`: skeleton grid, terrain with
+/// erosion, then — when `climate` is `Some` — the climate, biome, and
+/// hydrology stages.
 ///
 /// This mirrors the current generation pipeline; the resulting world is
 /// the same one the export files carry.
 pub fn build_world(seed: u64, climate: Option<&ClimateParams>) -> anyhow::Result<GeographicWorld> {
-    let mut world = seeded_world(seed);
+    let mut world = vernadsky_core::skeleton_world(FIXTURE_WIDTH, FIXTURE_HEIGHT, seed);
+    let terrain_params = vernadsky_terrain::TerrainConfig::default()
+        .to_params()
+        .context("default terrain config")?;
+    vernadsky_terrain::generate(&mut world, &terrain_params, &RngStreams::new(seed))
+        .context("terrain stage failed")?;
     if let Some(params) = climate {
         vernadsky_climate::generate(&mut world, params, &RngStreams::new(seed))
             .context("climate stage failed")?;

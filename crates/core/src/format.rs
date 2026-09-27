@@ -21,9 +21,9 @@ use crate::quant::{
     TempDeciC,
 };
 use crate::schema::{
-    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
+    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity, ErosionParams,
     GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
-    SCHEMA_VERSION, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 
 /// File magic of the canonical export format.
@@ -45,6 +45,8 @@ pub enum FormatError {
     UnsupportedLatticeRegistry(String),
     /// The parameters structure version is unknown to this reader.
     UnsupportedParamsVersion(u32),
+    /// The params block-presence flags are inconsistent with the version.
+    InvalidParamsFlags(u8),
     /// The file ends in the middle of a field.
     UnexpectedEof { needed: usize, remaining: usize },
     /// An embedded string is not valid UTF-8.
@@ -99,6 +101,12 @@ impl fmt::Display for FormatError {
             }
             FormatError::UnsupportedParamsVersion(v) => {
                 write!(f, "unsupported generation params version {v}")
+            }
+            FormatError::InvalidParamsFlags(flags) => {
+                write!(
+                    f,
+                    "params flags {flags:#04x} are inconsistent with the params version"
+                )
             }
             FormatError::UnexpectedEof { needed, remaining } => write!(
                 f,
@@ -185,20 +193,46 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     b.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
     write_str(&mut b, ID_STRATEGY.as_bytes());
     write_str(&mut b, LATTICE_REGISTRY_VERSION.as_bytes());
-    // The params version is derived from the structure: worlds with
-    // climate parameters are version 1, worlds without are version 0.
+    // The params version is derived from the structure: worlds with a
+    // terrain block are version 2, worlds with only climate parameters
+    // are version 1, bare-seed worlds are version 0. Version 2 carries
+    // the block-presence flags; versions 0 and 1 predate the flags.
+    let version = if world.params.terrain.is_some() {
+        2
+    } else if world.params.climate.is_some() {
+        1
+    } else {
+        0
+    };
     debug_assert_eq!(
-        world.params.params_version,
-        u32::from(world.params.climate.is_some()),
-        "params_version must match the presence of the climate block"
+        world.params.params_version, version,
+        "params_version must match the present parameter blocks"
     );
-    b.extend_from_slice(&world.params.params_version.to_le_bytes());
+    b.extend_from_slice(&version.to_le_bytes());
     b.extend_from_slice(&world.params.seed.to_le_bytes());
+    if version == 2 {
+        let mut flags = 0b10; // version 2 implies the terrain block
+        if world.params.climate.is_some() {
+            flags |= 0b01;
+        }
+        b.push(flags);
+    }
     if let Some(climate) = &world.params.climate {
         b.extend_from_slice(&climate.temperature_offset.0.to_le_bytes());
         b.extend_from_slice(&climate.polar_amplification.0.to_le_bytes());
         b.extend_from_slice(&climate.latitude_exponent.0.to_le_bytes());
         b.extend_from_slice(&climate.humidity_offset.0.to_le_bytes());
+    }
+    if let Some(terrain) = &world.params.terrain {
+        match &terrain.erosion {
+            None => b.push(0),
+            Some(erosion) => {
+                b.push(1);
+                b.extend_from_slice(&erosion.droplets_per_hundred_cells.0.to_le_bytes());
+                b.extend_from_slice(&erosion.power.0.to_le_bytes());
+                b.extend_from_slice(&erosion.talus.0.to_le_bytes());
+            }
+        }
     }
 
     // Grid.
@@ -312,14 +346,47 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
     }
     let params_version = r.take_u32()?;
     let seed = r.take_u64()?;
-    let climate_params = match params_version {
-        0 => None,
-        1 => Some(ClimateParams {
-            temperature_offset: TempDeciC(r.take_i16()?),
-            polar_amplification: CentiScalar(r.take_i16()?),
-            latitude_exponent: CentiScalar(r.take_i16()?),
-            humidity_offset: CentiScalar(r.take_i16()?),
-        }),
+    let (climate_params, terrain_params) = match params_version {
+        0 => (None, None),
+        1 => (
+            Some(ClimateParams {
+                temperature_offset: TempDeciC(r.take_i16()?),
+                polar_amplification: CentiScalar(r.take_i16()?),
+                latitude_exponent: CentiScalar(r.take_i16()?),
+                humidity_offset: CentiScalar(r.take_i16()?),
+            }),
+            None,
+        ),
+        2 => {
+            // Version 2 carries the block-presence flags: bit 0 climate,
+            // bit 1 terrain. Version 2 implies the terrain block; the
+            // climate block is optional (a terrain-only profile is a
+            // valid world).
+            let flags = r.take_u8()?;
+            if flags & 0b10 == 0 {
+                return Err(FormatError::InvalidParamsFlags(flags));
+            }
+            let climate_params = if flags & 0b01 != 0 {
+                Some(ClimateParams {
+                    temperature_offset: TempDeciC(r.take_i16()?),
+                    polar_amplification: CentiScalar(r.take_i16()?),
+                    latitude_exponent: CentiScalar(r.take_i16()?),
+                    humidity_offset: CentiScalar(r.take_i16()?),
+                })
+            } else {
+                None
+            };
+            let erosion = match r.take_u8()? {
+                0 => None,
+                1 => Some(ErosionParams {
+                    droplets_per_hundred_cells: CentiScalar(r.take_i16()?),
+                    power: CentiScalar(r.take_i16()?),
+                    talus: HeightM(r.take_i32()?),
+                }),
+                other => return Err(FormatError::InvalidBool(other)),
+            };
+            (climate_params, Some(TerrainParams { erosion }))
+        }
         other => return Err(FormatError::UnsupportedParamsVersion(other)),
     };
 
@@ -411,6 +478,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
             params_version,
             seed,
             climate: climate_params,
+            terrain: terrain_params,
         },
         grid,
         territories,
@@ -948,10 +1016,65 @@ mod tests {
                 latitude_exponent: CentiScalar(100),
                 humidity_offset: CentiScalar(30),
             }),
+            terrain: None,
         };
         world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
         let bytes = world.to_bytes();
         assert_eq!(from_bytes(&bytes).expect("valid"), world);
+    }
+
+    #[test]
+    fn round_trips_terrain_parameters() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: 2,
+            seed: 0x5EED,
+            climate: Some(ClimateParams {
+                temperature_offset: TempDeciC(-25),
+                polar_amplification: CentiScalar(150),
+                latitude_exponent: CentiScalar(100),
+                humidity_offset: CentiScalar(30),
+            }),
+            terrain: Some(TerrainParams {
+                erosion: Some(ErosionParams {
+                    droplets_per_hundred_cells: CentiScalar(100),
+                    power: CentiScalar(2),
+                    talus: HeightM(120),
+                }),
+            }),
+        };
+        world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
+        let bytes = world.to_bytes();
+        assert_eq!(from_bytes(&bytes).expect("valid"), world);
+
+        // The terrain-only profile carries no climate block.
+        world.params.climate = None;
+        world.climate.temperature = None;
+        let bytes = world.to_bytes();
+        let decoded = from_bytes(&bytes).expect("valid");
+        assert!(decoded.params.climate.is_none());
+        assert!(decoded.params.terrain.is_some());
+    }
+
+    #[test]
+    fn rejects_inconsistent_params_flags() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: 2,
+            seed: 7,
+            climate: None,
+            terrain: Some(TerrainParams { erosion: None }),
+        };
+        let mut bytes = world.to_bytes();
+        // Header layout: magic (4) + schema_version (4) + id strategy
+        // string + lattice registry string + params_version (4) + seed
+        // (8) — then the params flags byte.
+        let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len() + 4 + 8;
+        bytes[offset] = 0; // terrain bit cleared: inconsistent with version 2
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(from_bytes(&bytes), Err(FormatError::InvalidParamsFlags(0)));
     }
 
     #[test]
@@ -960,13 +1083,13 @@ mod tests {
         // Header layout: magic (4) + schema_version (4) + id strategy
         // string + lattice registry string, then the params version.
         let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len();
-        bytes[offset..offset + 4].copy_from_slice(&2u32.to_le_bytes());
+        bytes[offset..offset + 4].copy_from_slice(&7u32.to_le_bytes());
         let hash = fnv1a64(&bytes[..bytes.len() - 8]);
         let tail = bytes.len() - 8;
         bytes[tail..].copy_from_slice(&hash.to_le_bytes());
         assert_eq!(
             from_bytes(&bytes),
-            Err(FormatError::UnsupportedParamsVersion(2))
+            Err(FormatError::UnsupportedParamsVersion(7))
         );
     }
 

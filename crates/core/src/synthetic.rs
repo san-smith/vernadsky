@@ -220,6 +220,7 @@ pub fn seeded_world(seed: u64) -> GeographicWorld {
             params_version: 0,
             seed,
             climate: None,
+            terrain: None,
         },
         grid: GridSection {
             width: WIDTH,
@@ -240,6 +241,53 @@ pub fn seeded_world(seed: u64) -> GeographicWorld {
 /// file.
 pub fn minimal_world() -> GeographicWorld {
     seeded_world(0)
+}
+
+/// Builds the dimension-parameterized skeleton for the real generation
+/// pipeline: an empty grid at sea level with no water, no territories,
+/// and no staged sections.
+///
+/// This is the entry of the real pipeline — the terrain, climate,
+/// biome, and hydrology stages fill it in order. [`seeded_world`]
+/// remains the self-contained E-04 fixture whose golden manifests pin
+/// the synthetic pipeline.
+///
+/// The function is pure: identical arguments produce byte-identical
+/// exports.
+pub fn skeleton_world(width: u32, height: u32, seed: u64) -> GeographicWorld {
+    assert!(
+        width > 0 && height > 0,
+        "the skeleton grid must be non-empty"
+    );
+    let cells = vec![
+        CellRecord {
+            height: HeightM(0),
+            is_water: false,
+            territory: NO_INDEX,
+            water_body: NO_INDEX,
+        };
+        (width * height) as usize
+    ];
+    GeographicWorld {
+        params: GenerationParams {
+            params_version: 0,
+            seed,
+            climate: None,
+            terrain: None,
+        },
+        grid: GridSection {
+            width,
+            height,
+            connectivity: Connectivity::Four,
+            cells,
+        },
+        territories: Vec::new(),
+        regions: Vec::new(),
+        water_bodies: Vec::new(),
+        rivers: Vec::new(),
+        climate: ClimateSection::default(),
+        biomes: BiomeSection::default(),
+    }
 }
 
 /// Integer centroid (floor) of the member cells: the anchor behind an
