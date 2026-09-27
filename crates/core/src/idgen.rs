@@ -22,7 +22,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::id::{RiverId, TerritoryId, WaterBodyId};
+use crate::id::{RegionId, RiverId, TerritoryId, WaterBodyId};
 
 /// Identifier derivation strategy written into every export.
 pub const ID_STRATEGY: &str = "content-hash-v1";
@@ -31,6 +31,7 @@ const STRATEGY_TAG: u8 = 1;
 const KIND_TERRITORY: u8 = 1;
 const KIND_WATER_BODY: u8 = 2;
 const KIND_RIVER: u8 = 3;
+const KIND_REGION: u8 = 4;
 
 /// FNV-1a 64 offset basis.
 pub const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -117,6 +118,7 @@ pub struct IdAssigner {
     territories: IdSpace,
     water_bodies: IdSpace,
     rivers: IdSpace,
+    regions: IdSpace,
 }
 
 impl IdAssigner {
@@ -158,6 +160,20 @@ impl IdAssigner {
         Ok(RiverId(self.rivers.assign(
             KIND_RIVER,
             &[mouth_x, mouth_y],
+            &[],
+        )?))
+    }
+
+    /// Derives a region identifier from the anchor of its smallest member
+    /// territory (ordered by `(anchor.y, anchor.x)`).
+    ///
+    /// The anchor may change when the partition regroups: such a change
+    /// reassigns the identifier and is therefore a level-2 event of the
+    /// identifier strategy (ADR-0003).
+    pub fn region(&mut self, anchor_x: i64, anchor_y: i64) -> Result<RegionId, IdGenError> {
+        Ok(RegionId(self.regions.assign(
+            KIND_REGION,
+            &[anchor_x, anchor_y],
             &[],
         )?))
     }

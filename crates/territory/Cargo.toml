@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 vernadsky-core = { path = "../core", version = "0.1.0" }
+petgraph = "0.7"
 
 [dev-dependencies]
 vernadsky-climate = { path = "../climate", version = "0.1.0" }
