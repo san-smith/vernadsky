@@ -15,3 +15,5 @@
 //!   and stable identifiers are used instead.
 //! - The crate contains no `unsafe` code; this is enforced by the workspace
 //!   lints, not by convention.
+
+pub mod quant;
