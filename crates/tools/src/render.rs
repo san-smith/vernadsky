@@ -6,7 +6,7 @@
 //! because planetary ranges vary. Categorical layers (territories,
 //! biomes) use a deterministic golden-ratio hue palette.
 
-use vernadsky_core::schema::{CellRecord, GeographicWorld, NO_INDEX};
+use vernadsky_core::schema::{CellRecord, GeographicWorld, NO_INDEX, WaterBodyKind};
 
 /// Nominal extent of a value scale, in the layer's physical unit.
 type Stop = (f64, Rgb);
@@ -42,11 +42,13 @@ pub enum Layer {
     Biome,
     /// Territory membership, categorical.
     Territory,
+    /// River network: river cells highlighted over land and water.
+    Rivers,
 }
 
 impl Layer {
     /// All layers, in canonical render order.
-    pub const ALL: [Layer; 7] = [
+    pub const ALL: [Layer; 8] = [
         Layer::Height,
         Layer::Water,
         Layer::Temperature,
@@ -54,6 +56,7 @@ impl Layer {
         Layer::Precipitation,
         Layer::Biome,
         Layer::Territory,
+        Layer::Rivers,
     ];
 
     /// The file stem of the layer: `{out}.{name}.png`.
@@ -66,12 +69,23 @@ impl Layer {
             Layer::Precipitation => "precipitation",
             Layer::Biome => "biome",
             Layer::Territory => "territory",
+            Layer::Rivers => "rivers",
         }
     }
 }
 
 /// Water color of the coverage layer.
 pub const WATER_COLOR: Rgb = [52, 110, 190];
+/// Ocean shade of the coverage layer (world ocean components).
+pub const OCEAN_COLOR: Rgb = [52, 110, 190];
+/// Sea shade of the coverage layer (large enclosed components).
+pub const SEA_COLOR: Rgb = [80, 140, 205];
+/// Lake shade of the coverage layer (small enclosed components).
+pub const LAKE_COLOR: Rgb = [120, 175, 225];
+/// River color of the river layer.
+pub const RIVER_COLOR: Rgb = [70, 130, 180];
+/// Water shade of the river layer (non-river water cells).
+pub const RIVERS_WATER_COLOR: Rgb = [205, 220, 240];
 /// Land color of the coverage layer.
 pub const LAND_COLOR: Rgb = [238, 238, 238];
 /// Color of cells outside any territory.
@@ -118,10 +132,16 @@ pub fn rasterize(world: &GeographicWorld, layer: Layer) -> Option<Raster> {
         }
         Layer::Water => {
             for cell in cells {
-                pixels.push(if cell.is_water {
+                pixels.push(if !cell.is_water {
+                    LAND_COLOR
+                } else if cell.water_body == NO_INDEX {
                     WATER_COLOR
                 } else {
-                    LAND_COLOR
+                    match world.water_bodies[cell.water_body as usize].kind {
+                        WaterBodyKind::Ocean => OCEAN_COLOR,
+                        WaterBodyKind::Sea => SEA_COLOR,
+                        WaterBodyKind::Lake => LAKE_COLOR,
+                    }
                 });
             }
         }
@@ -162,6 +182,23 @@ pub fn rasterize(world: &GeographicWorld, layer: Layer) -> Option<Raster> {
                     NO_TERRITORY_COLOR
                 } else {
                     categorical(u64::from(cell.territory))
+                });
+            }
+        }
+        Layer::Rivers => {
+            let mut river_cells = std::collections::HashSet::new();
+            for river in &world.rivers {
+                for cell in &river.path {
+                    river_cells.insert(cell.0 as usize);
+                }
+            }
+            for (index, cell) in cells.iter().enumerate() {
+                pixels.push(if river_cells.contains(&index) {
+                    RIVER_COLOR
+                } else if cell.is_water {
+                    RIVERS_WATER_COLOR
+                } else {
+                    LAND_COLOR
                 });
             }
         }

@@ -2,7 +2,9 @@
 //! graceful skip of absent sections, and export round-trips.
 
 use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
-use vernadsky_tools::render::{LAND_COLOR, Layer, WATER_COLOR, rasterize, zoom};
+use vernadsky_tools::render::{
+    LAND_COLOR, Layer, OCEAN_COLOR, RIVER_COLOR, WATER_COLOR, rasterize, zoom,
+};
 use vernadsky_tools::{build_world, climate_params_from_toml};
 
 /// A world with the climate stage applied (default configuration).
@@ -84,6 +86,34 @@ fn biome_layer_uses_registry_colors() {
             "biome pixel {pixel:?} must be a registry color"
         );
     }
+}
+
+#[test]
+fn water_layer_shades_by_water_body_kind() {
+    let world = build_world(0, None).expect("pipeline succeeds");
+    let raster = rasterize(&world, Layer::Water).expect("water always renders");
+    // The fixture world is a single polar-connected ocean: every water
+    // cell carries the ocean shade.
+    for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
+        let expected = if cell.is_water {
+            OCEAN_COLOR
+        } else {
+            LAND_COLOR
+        };
+        assert_eq!(pixel, &expected);
+    }
+}
+
+#[test]
+fn rivers_layer_highlights_the_network() {
+    let world = build_world(0, None).expect("pipeline succeeds");
+    let raster = rasterize(&world, Layer::Rivers).expect("rivers always render");
+    let river_pixels = raster
+        .pixels
+        .iter()
+        .filter(|pixel| **pixel == RIVER_COLOR)
+        .count();
+    assert!(river_pixels > 0, "the synthetic island must carry rivers");
 }
 
 #[test]
