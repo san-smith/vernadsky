@@ -5,15 +5,26 @@ on:
     branches: [master]
   pull_request:
 
+env:
+  RUSTDOCFLAGS: -D warnings
+
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.92.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: No references to private repositories
+        run: |
+          if grep -rniE 'foa[-_]docs' --include='*.md' --include='*.rs' --include='*.toml' --include='*.yml' . ; then
+            echo '::error::Found a reference to private infrastructure; see AGENTS.md'
+            exit 1
+          fi
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
+      - run: cargo doc --no-deps
       - run: cargo test
