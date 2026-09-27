@@ -4,7 +4,9 @@ Vernadsky is a reusable Rust generator for physical planetary geography. Its out
 
 ## Status
 
-Bootstrap crate with no public schema or API yet. The planned layout is a Cargo workspace with `crates/{core,climate,hydrology,export}`; crates are extracted when there is real content, never as placeholder APIs. Keep the root buildable and testable at every commit.
+Cargo workspace with `crates/core` (`vernadsky-core`); further crates (`climate`, `hydrology`, `export`) are extracted when there is real content, never as placeholder APIs. There is no public schema or API yet. Keep the root buildable and testable at every commit.
+
+Terminology: the generator's base partition unit is a **Territory** — a neutral geographic unit without gameplay semantics. Game concepts such as Province, State, or SeaZone are consumer-side constructs built from territories and cells.
 
 ## Commands
 
@@ -21,7 +23,7 @@ cargo clippy -- -D warnings
 
 - **Seeded reproducibility.** Generation is a pure function of seed plus parameters: same inputs must produce identical output on every run and every supported platform. No wall-clock time, thread scheduling, external entropy, or uninitialized memory in the generation path.
 - **Deterministic computation.** Same rules as for any numeric simulation code: no `HashMap`/`HashSet` iteration order influencing results (use `BTreeMap`, sorted structures, or stable IDs), no platform-dependent floating-point without a documented policy on rounding and precision.
-- **Stable identifiers.** Area and cell identifiers are part of the public contract; consumers correlate data across exports. Changing how IDs are derived is a breaking schema change and needs a version bump and a migration note.
+- **Stable identifiers.** Territory and cell identifiers are part of the public contract; consumers correlate data across exports. Changing how IDs are derived is a breaking schema change and needs a version bump and a migration note.
 - **Versioned export.** Exported data carries a schema version and the generation parameters needed to reproduce it. Never change the meaning of an existing schema version in place.
 
 ## Scope and dependencies
