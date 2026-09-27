@@ -49,12 +49,14 @@ pub mod format;
 pub mod id;
 pub mod idgen;
 pub mod quant;
+pub mod rng;
 pub mod schema;
 pub mod synthetic;
 
 pub use id::{BiomeId, CellId, RegionId, RiverId, TerritoryId, WaterBodyId};
 pub use idgen::{ID_STRATEGY, IdAssigner, IdGenError};
 pub use quant::{LATTICE_REGISTRY_VERSION, QuantError};
+pub use rng::{RNG_STRATEGY, RngStreams};
 pub use schema::{
     Anchor, BiomeSection, CellRecord, ClimateSection, Connectivity, GenerationParams,
     GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
