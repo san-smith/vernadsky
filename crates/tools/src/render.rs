@@ -44,11 +44,13 @@ pub enum Layer {
     Territory,
     /// River network: river cells highlighted over land and water.
     Rivers,
+    /// Region grouping: territories colored by their region.
+    Regions,
 }
 
 impl Layer {
     /// All layers, in canonical render order.
-    pub const ALL: [Layer; 8] = [
+    pub const ALL: [Layer; 9] = [
         Layer::Height,
         Layer::Water,
         Layer::Temperature,
@@ -57,6 +59,7 @@ impl Layer {
         Layer::Biome,
         Layer::Territory,
         Layer::Rivers,
+        Layer::Regions,
     ];
 
     /// The file stem of the layer: `{out}.{name}.png`.
@@ -70,6 +73,7 @@ impl Layer {
             Layer::Biome => "biome",
             Layer::Territory => "territory",
             Layer::Rivers => "rivers",
+            Layer::Regions => "regions",
         }
     }
 }
@@ -200,6 +204,29 @@ pub fn rasterize(world: &GeographicWorld, layer: Layer) -> Option<Raster> {
                 } else {
                     LAND_COLOR
                 });
+            }
+        }
+        Layer::Regions => {
+            // Territories colored by their region: coarse geographic
+            // zones instead of the per-territory confetti. Cells outside
+            // any partitioned territory stay in the background color.
+            let region_position: std::collections::HashMap<u64, usize> = world
+                .regions
+                .iter()
+                .enumerate()
+                .map(|(index, record)| (record.id.0, index))
+                .collect();
+            for cell in cells {
+                let pixel = if cell.territory == NO_INDEX {
+                    NO_TERRITORY_COLOR
+                } else {
+                    world.territories[cell.territory as usize]
+                        .region
+                        .and_then(|region| region_position.get(&region.0))
+                        .map(|&region| categorical(region as u64))
+                        .unwrap_or(NO_TERRITORY_COLOR)
+                };
+                pixels.push(pixel);
             }
         }
     }

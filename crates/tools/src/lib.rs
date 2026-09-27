@@ -50,6 +50,7 @@ pub fn build_world(seed: u64, climate: Option<&ClimateParams>) -> anyhow::Result
             FIXTURE_WATER_TERRITORY_COUNT,
         )
         .context("territory stage failed")?;
+        vernadsky_territory::generate_regions(&mut world).context("regions failed")?;
     }
     Ok(world)
 }

@@ -67,6 +67,8 @@
 //! }
 //! ```
 
+pub mod region;
+
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 
@@ -75,6 +77,8 @@ use vernadsky_core::quant::{
 };
 use vernadsky_core::schema::{CellRecord, GeographicWorld, NO_INDEX, TerritoryRecord};
 use vernadsky_core::{Anchor, idgen::IdAssigner};
+
+pub use region::generate_regions;
 
 /// The four orthogonal neighbor offsets, in fixed scan order.
 const NEIGHBORS: [(i64, i64); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
@@ -714,6 +718,110 @@ mod tests {
         );
     }
 
+    /// The world_with_lake_and_sea layout partitioned, with regions
+    /// grouped.
+    fn partitioned_with_regions() -> GeographicWorld {
+        let mut world = world_with_lake_and_sea();
+        generate(&mut world, 6, 7).expect("partitions succeed");
+        generate_regions(&mut world).expect("regions succeed");
+        world
+    }
+
+    #[test]
+    fn every_territory_belongs_to_exactly_one_region() {
+        let world = partitioned_with_regions();
+        assert!(!world.regions.is_empty());
+        for territory in &world.territories {
+            assert!(territory.region.is_some(), "every territory is grouped");
+        }
+        let region_ids: std::collections::BTreeSet<_> =
+            world.regions.iter().map(|r| r.id).collect();
+        assert_eq!(region_ids.len(), world.regions.len(), "region ids unique");
+        for territory in &world.territories {
+            assert!(
+                region_ids.contains(&territory.region.expect("grouped")),
+                "territory references a registered region"
+            );
+        }
+    }
+
+    #[test]
+    fn regions_never_mix_surfaces() {
+        let world = partitioned_with_regions();
+        for territory in &world.territories {
+            let region = territory.region.expect("grouped");
+            let position = world
+                .regions
+                .iter()
+                .position(|r| r.id == region)
+                .expect("registered");
+            // Homogeneity: every member of the region matches the first.
+            for other in &world.territories {
+                if other.region == Some(region) {
+                    assert_eq!(
+                        other.is_water, territory.is_water,
+                        "region {position} mixes surfaces"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_lake_basin_differs_from_the_ocean_basin() {
+        let world = partitioned_with_regions();
+        // The single-cell lake and the outer ocean are disconnected
+        // water components, so their territories sit in different
+        // regions.
+        let lake_owner = world.grid.cells[2 * 12 + 2].territory;
+        let ocean_owner = world.grid.cells[0].territory;
+        let lake_region = world.territories[lake_owner as usize].region;
+        let ocean_region = world.territories[ocean_owner as usize].region;
+        assert_ne!(lake_region, ocean_region, "the lake is its own basin");
+    }
+
+    #[test]
+    fn non_adjacent_islands_group_separately() {
+        // Two land islands (columns 1 and 3 are water gaps around the
+        // boxes... reuse the lake-and-sea world: its walled boxes are
+        // land rings surrounded by water, so each ring is its own
+        // continent.
+        let world = partitioned_with_regions();
+        let mut land_regions: std::collections::BTreeSet<u64> = Default::default();
+        for cell in &world.grid.cells {
+            if !cell.is_water {
+                land_regions.insert(
+                    world.territories[cell.territory as usize]
+                        .region
+                        .expect("grouped")
+                        .0,
+                );
+            }
+        }
+        // Two walled rings + the main island(s): more than one continent
+        // region exists, and none of them mixes with a basin (checked
+        // above).
+        assert!(
+            land_regions.len() >= 2,
+            "the land rings are separate continents"
+        );
+    }
+
+    #[test]
+    fn regions_are_deterministic() {
+        let first = partitioned_with_regions();
+        let second = partitioned_with_regions();
+        assert_eq!(first.regions, second.regions);
+        let refs = |world: &GeographicWorld| {
+            world
+                .territories
+                .iter()
+                .map(|t| t.region.expect("grouped").0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(refs(&first), refs(&second));
+    }
+
     #[test]
     fn missing_climate_is_rejected() {
         let mut world = skeleton_world(8, 4, 7);
@@ -725,6 +833,9 @@ mod tests {
     /// lake (top left) and a walled 9-cell sea (right).
     fn world_with_lake_and_sea() -> GeographicWorld {
         let mut world = skeleton_world(12, 7, 5);
+        let cells = world.grid.cells.len();
+        world.climate.temperature = Some(vec![TempDeciC(100); cells]);
+        world.climate.humidity = Some(vec![HumidDeciPct(500); cells]);
         let terrain = 0.5; // sea level: the water flag decides everything here
         for cell in &mut world.grid.cells {
             cell.is_water = true;

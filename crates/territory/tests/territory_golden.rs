@@ -22,7 +22,7 @@ use vernadsky_climate::{ClimateConfig, generate as climate};
 use vernadsky_core::{GeographicWorld, RngStreams, skeleton_world};
 use vernadsky_hydrology::generate as hydrology;
 use vernadsky_terrain::{TerrainConfig, generate as terrain};
-use vernadsky_territory::generate;
+use vernadsky_territory::{generate, generate_regions};
 
 /// The fixed seed set: working values plus the boundary seeds. Shared
 /// with the earlier manifests.
@@ -33,11 +33,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// toolchain), with the default stage configurations and the fixture
 /// territory count.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x1790_0e4a_fb60_02ee,
-    0x4c84_9860_3ada_73e7,
-    0xf6bf_2127_30d7_48b0,
-    0x5390_382a_4bc1_92bf,
-    0x01e2_d80c_9b96_d95d,
+    0x4aea_2c05_0284_d3f8,
+    0x9947_1bc5_b1ba_5c5e,
+    0x3afc_7a0e_8034_78a7,
+    0x617f_2b56_154f_ae92,
+    0xadf4_858e_bdec_c121,
 ];
 
 /// Fixture grid and partition sizes of the golden runs.
@@ -63,6 +63,7 @@ fn world_with_territories(seed: u64) -> GeographicWorld {
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
     hydrology(&mut world).expect("the hydrology stage succeeds");
     generate(&mut world, GOLDEN_LAND_COUNT, GOLDEN_WATER_COUNT).expect("the partition succeeds");
+    generate_regions(&mut world).expect("the regions succeed");
     world
 }
 
