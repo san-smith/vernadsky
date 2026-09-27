@@ -31,7 +31,7 @@ macro_rules! id_newtype {
 
         impl fmt::Debug for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, concat!($prefix, ":{:x}"), self.0)
+                write!(f, "{}{:x}", $prefix, self.0)
             }
         }
 
@@ -48,7 +48,7 @@ id_newtype! {
     ///
     /// Cell identity *is* its grid coordinate; changing the resolution or
     /// the index order is a breaking schema change.
-    CellId(u64), "c"
+    CellId(u64), "c:"
 }
 
 id_newtype! {
@@ -56,7 +56,7 @@ id_newtype! {
     ///
     /// Game concepts such as Province, State, or SeaZone are consumer-side
     /// constructs built from territories and cells.
-    TerritoryId(u64), "t"
+    TerritoryId(u64), "t:"
 }
 
 id_newtype! {
@@ -64,22 +64,22 @@ id_newtype! {
     ///
     /// By policy the value equals the smallest member territory
     /// identifier, which keeps it stable while that member exists.
-    RegionId(u64), "r"
+    RegionId(u64), "r:"
 }
 
 id_newtype! {
     /// A classified water body (ocean, sea, or lake).
-    WaterBodyId(u64), "w"
+    WaterBodyId(u64), "w:"
 }
 
 id_newtype! {
     /// A river: an ordered path from its source towards its mouth.
-    RiverId(u64), "v"
+    RiverId(u64), "v:"
 }
 
 id_newtype! {
     /// A biome, assigned by the versioned biome registry.
-    BiomeId(u16), "b"
+    BiomeId(u16), "b:"
 }
 
 impl CellId {
