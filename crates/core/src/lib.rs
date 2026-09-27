@@ -16,4 +16,6 @@
 //! - The crate contains no `unsafe` code; this is enforced by the workspace
 //!   lints, not by convention.
 
+pub mod id;
+pub mod idgen;
 pub mod quant;
