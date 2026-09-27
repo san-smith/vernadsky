@@ -1,0 +1,99 @@
+//! Smoke tests of the debug tool: raster dimensions, layer colors,
+//! graceful skip of absent sections, and export round-trips.
+
+use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
+use vernadsky_tools::render::{LAND_COLOR, Layer, WATER_COLOR, rasterize, zoom};
+use vernadsky_tools::{build_world, climate_params_from_toml};
+
+/// A world with the climate stage applied (default configuration).
+fn world_with_climate(seed: u64) -> GeographicWorld {
+    let mut world = seeded_world(seed);
+    let params = vernadsky_climate::ClimateConfig::default()
+        .to_params()
+        .expect("default config is valid");
+    vernadsky_climate::generate(&mut world, &params, &RngStreams::new(seed))
+        .expect("climate stage succeeds");
+    world
+}
+
+#[test]
+fn rasters_match_the_grid_dimensions() {
+    let world = world_with_climate(0);
+    // The biome section stays absent until E-05 S-02 (biome stage).
+    let present = [
+        Layer::Height,
+        Layer::Water,
+        Layer::Temperature,
+        Layer::Humidity,
+        Layer::Precipitation,
+        Layer::Territory,
+    ];
+    for layer in present {
+        let raster = rasterize(&world, layer)
+            .unwrap_or_else(|| panic!("layer {} must render on a full world", layer.name()));
+        assert_eq!(raster.width, world.grid.width, "layer {}", layer.name());
+        assert_eq!(raster.height, world.grid.height, "layer {}", layer.name());
+        assert_eq!(raster.pixels.len(), world.grid.cells.len());
+    }
+    assert!(rasterize(&world, Layer::Biome).is_none());
+}
+
+#[test]
+fn water_layer_distinguishes_water_and_land() {
+    let world = seeded_world(0);
+    let raster = rasterize(&world, Layer::Water).expect("water always renders");
+    for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
+        let expected = if cell.is_water {
+            WATER_COLOR
+        } else {
+            LAND_COLOR
+        };
+        assert_eq!(pixel, &expected);
+    }
+}
+
+#[test]
+fn absent_sections_are_reported_as_none() {
+    // A bare synthetic world carries no climate or biome sections yet.
+    let world = seeded_world(0);
+    assert!(rasterize(&world, Layer::Temperature).is_none());
+    assert!(rasterize(&world, Layer::Humidity).is_none());
+    assert!(rasterize(&world, Layer::Precipitation).is_none());
+    assert!(rasterize(&world, Layer::Biome).is_none());
+    assert!(rasterize(&world, Layer::Height).is_some());
+    assert!(rasterize(&world, Layer::Water).is_some());
+    assert!(rasterize(&world, Layer::Territory).is_some());
+}
+
+#[test]
+fn zoom_preserves_content_dimensions() {
+    let world = world_with_climate(0);
+    let raster = rasterize(&world, Layer::Temperature).expect("climate present");
+    let doubled = zoom(&raster, 2);
+    assert_eq!(doubled.width, raster.width * 2);
+    assert_eq!(doubled.height, raster.height * 2);
+    // Nearest-neighbor: every source pixel must appear at (0, 0) of its
+    // zoom block.
+    assert_eq!(doubled.pixels[0], raster.pixels[0]);
+}
+
+#[test]
+fn built_world_dump_round_trips() {
+    let params = vernadsky_climate::ClimateConfig::default()
+        .to_params()
+        .expect("default config is valid");
+    let world = build_world(42, Some(&params)).expect("pipeline succeeds");
+    let bytes = world.to_bytes();
+    assert_eq!(world.params.params_version, 1, "climate parameters applied");
+    let decoded = GeographicWorld::from_bytes(&bytes).expect("valid export");
+    assert_eq!(decoded, world);
+    assert_eq!(decoded.content_hash(), world.content_hash());
+}
+
+#[test]
+fn climate_config_from_toml_changes_the_world() {
+    let params = climate_params_from_toml("temperature_offset_c = 10.0\n").expect("valid config");
+    let warm = build_world(0, Some(&params)).expect("pipeline succeeds");
+    let plain = build_world(0, None).expect("pipeline succeeds");
+    assert_ne!(warm.to_bytes(), plain.to_bytes(), "config must matter");
+}
