@@ -21,9 +21,9 @@ use crate::quant::{
     TempDeciC,
 };
 use crate::schema::{
-    Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity, ErosionParams,
-    GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
-    SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    Anchor, BIOME_REGISTRY, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
+    ErosionParams, GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord,
+    RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 
 /// File magic of the canonical export format.
@@ -43,6 +43,8 @@ pub enum FormatError {
     UnsupportedIdStrategy(String),
     /// The lattice registry is unknown to this reader.
     UnsupportedLatticeRegistry(String),
+    /// The biome registry is unknown to this reader.
+    UnsupportedBiomeRegistry(String),
     /// The parameters structure version is unknown to this reader.
     UnsupportedParamsVersion(u32),
     /// The params block-presence flags are inconsistent with the version.
@@ -98,6 +100,9 @@ impl fmt::Display for FormatError {
             FormatError::UnsupportedIdStrategy(s) => write!(f, "unsupported id strategy {s:?}"),
             FormatError::UnsupportedLatticeRegistry(s) => {
                 write!(f, "unsupported lattice registry {s:?}")
+            }
+            FormatError::UnsupportedBiomeRegistry(s) => {
+                write!(f, "unsupported biome registry {s:?}")
             }
             FormatError::UnsupportedParamsVersion(v) => {
                 write!(f, "unsupported generation params version {v}")
@@ -193,6 +198,7 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     b.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
     write_str(&mut b, ID_STRATEGY.as_bytes());
     write_str(&mut b, LATTICE_REGISTRY_VERSION.as_bytes());
+    write_str(&mut b, BIOME_REGISTRY.as_bytes());
     // The params version is derived from the structure: worlds with a
     // terrain block are version 2, worlds with only climate parameters
     // are version 1, bare-seed worlds are version 0. Version 2 carries
@@ -333,7 +339,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
         return Err(FormatError::BadMagic);
     }
     let schema_version = r.take_u32()?;
-    if schema_version != SCHEMA_VERSION {
+    if schema_version > SCHEMA_VERSION {
         return Err(FormatError::UnsupportedSchemaVersion(schema_version));
     }
     let strategy = r.take_string()?;
@@ -343,6 +349,17 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
     let registry = r.take_string()?;
     if registry != LATTICE_REGISTRY_VERSION {
         return Err(FormatError::UnsupportedLatticeRegistry(registry));
+    }
+    // Version 0 files predate the biome registry version: they carry no
+    // such field, and their biome identifiers resolve through this
+    // crate's registry. Version 1 carries it explicitly; the value is
+    // validated and not stored — the interpretation lives in the
+    // registry itself, not in the decoded world.
+    if schema_version != 0 {
+        let carried = r.take_string()?;
+        if carried != BIOME_REGISTRY {
+            return Err(FormatError::UnsupportedBiomeRegistry(carried));
+        }
     }
     let params_version = r.take_u32()?;
     let seed = r.take_u64()?;
@@ -867,6 +884,17 @@ mod tests {
     use super::*;
     use crate::synthetic;
 
+    /// Byte offset of the params version in the header.
+    fn params_offset() -> usize {
+        4 + 4
+            + 2
+            + ID_STRATEGY.len()
+            + 2
+            + LATTICE_REGISTRY_VERSION.len()
+            + 2
+            + BIOME_REGISTRY.len()
+    }
+
     /// Serializes a mutated world, repairing the trailing content hash so
     /// the targeted validation error is reached instead of the hash check.
     fn serialize_unchecked(world: &GeographicWorld, body: &mut Vec<u8>) -> Vec<u8> {
@@ -1069,7 +1097,7 @@ mod tests {
         // Header layout: magic (4) + schema_version (4) + id strategy
         // string + lattice registry string + params_version (4) + seed
         // (8) — then the params flags byte.
-        let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len() + 4 + 8;
+        let offset = params_offset() + 4 + 8; // params version + seed
         bytes[offset] = 0; // terrain bit cleared: inconsistent with version 2
         let hash = fnv1a64(&bytes[..bytes.len() - 8]);
         let tail = bytes.len() - 8;
@@ -1078,11 +1106,44 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unknown_schema_version() {
+        let mut bytes = synthetic::minimal_world().to_bytes();
+        bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(
+            from_bytes(&bytes),
+            Err(FormatError::UnsupportedSchemaVersion(2))
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_biome_registry() {
+        let mut bytes = synthetic::minimal_world().to_bytes();
+        // Header layout: magic (4) + schema_version (4) + id strategy
+        // string + lattice registry string, then the biome registry
+        // string (schema 1).
+        let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len();
+        bytes[offset..offset + 2].copy_from_slice(&9u16.to_le_bytes());
+        bytes[offset + 2..offset + 11].copy_from_slice(b"biomes-x1");
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(
+            from_bytes(&bytes),
+            Err(FormatError::UnsupportedBiomeRegistry(
+                "biomes-x1".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn rejects_unknown_params_version() {
         let mut bytes = synthetic::minimal_world().to_bytes();
         // Header layout: magic (4) + schema_version (4) + id strategy
         // string + lattice registry string, then the params version.
-        let offset = 4 + 4 + 2 + ID_STRATEGY.len() + 2 + LATTICE_REGISTRY_VERSION.len();
+        let offset = params_offset();
         bytes[offset..offset + 4].copy_from_slice(&7u32.to_le_bytes());
         let hash = fnv1a64(&bytes[..bytes.len() - 8]);
         let tail = bytes.len() - 8;

@@ -32,11 +32,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// the reference platform (Linux x86_64, pinned toolchain), with the
 /// default stage configurations.
 const MANIFEST_HASHES: [u64; 5] = [
-    0xa023_c95a_e270_94da,
-    0x8dcb_56e5_3afe_0a09,
-    0x1b32_3134_51fc_019a,
-    0xb8a8_e417_0aae_e718,
-    0xc2e1_81be_74e5_d635,
+    0x37ca_b152_1295_1ea5,
+    0xa43e_25f6_3fb2_5146,
+    0xfb2c_cb35_9128_b9cd,
+    0x56c3_c409_7f0c_6a0b,
+    0x47c8_6bda_0c8e_c206,
 ];
 
 /// Builds a synthetic world through the full current pipeline.

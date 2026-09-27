@@ -1,6 +1,6 @@
 //! Vernadsky core: seeded planetary geography generation.
 //!
-//! This crate owns the `GeographicWorld` schema (version 0) and its
+//! This crate owns the `GeographicWorld` schema (version 1) and its
 //! canonical binary export format. Generation stages are being ported
 //! incrementally; the schema they fill is already the frozen contract.
 //!

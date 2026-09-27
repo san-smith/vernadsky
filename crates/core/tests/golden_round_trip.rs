@@ -1,10 +1,12 @@
 //! Golden round-trip tests for the canonical export format.
 //!
-//! `golden/minimal_world_v0.gwb` is the checked-in serialization of
-//! [`vernadsky_core::synthetic::minimal_world`]. It pins the byte-level
-//! format and the deterministic constructor: any change to the schema
-//! layout, the serialization, or the synthetic world changes these bytes
-//! and must be reviewed deliberately.
+//! `golden/minimal_world_v1.gwb` is the checked-in serialization of
+//! [`vernadsky_core::synthetic::minimal_world`] in the schema v1 layout.
+//! It pins the byte-level format and the deterministic constructor: any
+//! change to the schema layout, the serialization, or the synthetic
+//! world changes these bytes and must be reviewed deliberately.
+//! `golden/minimal_world_v0_legacy.gwb` preserves a pre-v1 export and
+//! proves that the reader keeps accepting old files.
 //!
 //! # Regenerating the golden file
 //!
@@ -15,11 +17,15 @@
 //! Run this only when a format or constructor change is intended, and
 //! commit the new file together with the change that caused the drift.
 
-use vernadsky_core::{GeographicWorld, synthetic};
+use vernadsky_core::{GeographicWorld, minimal_world, synthetic};
 
 const GOLDEN_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/golden/minimal_world_v0.gwb"
+    "/tests/golden/minimal_world_v1.gwb"
+);
+const LEGACY_V0_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/golden/minimal_world_v0_legacy.gwb"
 );
 
 #[test]
@@ -45,6 +51,16 @@ fn golden_file_carries_a_consistent_content_hash() {
     let world = GeographicWorld::from_bytes(&golden).expect("golden file must validate");
     let stored = vernadsky_core::format::stored_content_hash(&golden).expect("8 trailing bytes");
     assert_eq!(world.content_hash(), stored);
+}
+
+#[test]
+fn legacy_v0_file_stays_readable() {
+    // Schema v1 changed the header layout, but the reader keeps
+    // accepting pre-biome-registry files: their biome identifiers
+    // resolve through this crate's registry.
+    let legacy = std::fs::read(LEGACY_V0_PATH).expect("legacy file is checked in");
+    let world = GeographicWorld::from_bytes(&legacy).expect("legacy file must validate");
+    assert_eq!(world.to_bytes(), minimal_world().to_bytes());
 }
 
 #[test]

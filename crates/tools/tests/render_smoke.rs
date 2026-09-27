@@ -6,7 +6,7 @@ use vernadsky_tools::render::{
     LAKE_COLOR, LAND_COLOR, Layer, NO_TERRITORY_COLOR, OCEAN_COLOR, RIVER_COLOR,
     RIVERS_WATER_COLOR, SEA_COLOR, WATER_COLOR, rasterize, zoom,
 };
-use vernadsky_tools::{build_world, climate_params_from_toml};
+use vernadsky_tools::{build_fixture_world, climate_params_from_toml};
 
 /// A world with the climate stage applied (default configuration).
 fn world_with_climate(seed: u64) -> GeographicWorld {
@@ -91,7 +91,7 @@ fn biome_layer_uses_registry_colors() {
 
 #[test]
 fn water_layer_shades_by_water_body_kind() {
-    let world = build_world(0, None).expect("pipeline succeeds");
+    let world = build_fixture_world(0, None).expect("pipeline succeeds");
     let raster = rasterize(&world, Layer::Water).expect("water always renders");
     for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
         let expected = if !cell.is_water {
@@ -116,7 +116,7 @@ fn rivers_layer_highlights_the_network() {
     let params = vernadsky_climate::ClimateConfig::default()
         .to_params()
         .expect("default config is valid");
-    let world = build_world(42, Some(&params)).expect("pipeline succeeds");
+    let world = build_fixture_world(42, Some(&params)).expect("pipeline succeeds");
     let raster = rasterize(&world, Layer::Rivers).expect("rivers always render");
     let river_pixels = raster
         .pixels
@@ -131,7 +131,7 @@ fn territory_layer_covers_the_partitioned_land() {
     let params = vernadsky_climate::ClimateConfig::default()
         .to_params()
         .expect("default config is valid");
-    let world = build_world(0, Some(&params)).expect("pipeline succeeds");
+    let world = build_fixture_world(0, Some(&params)).expect("pipeline succeeds");
     let raster = rasterize(&world, Layer::Territory).expect("territories are partitioned");
     for (cell, pixel) in world.grid.cells.iter().zip(raster.pixels.iter()) {
         let expected = if cell.territory == vernadsky_core::NO_INDEX {
@@ -160,7 +160,7 @@ fn built_world_dump_round_trips() {
     let params = vernadsky_climate::ClimateConfig::default()
         .to_params()
         .expect("default config is valid");
-    let world = build_world(42, Some(&params)).expect("pipeline succeeds");
+    let world = build_fixture_world(42, Some(&params)).expect("pipeline succeeds");
     let bytes = world.to_bytes();
     assert_eq!(
         world.params.params_version, 2,
@@ -175,7 +175,7 @@ fn built_world_dump_round_trips() {
 #[test]
 fn climate_config_from_toml_changes_the_world() {
     let params = climate_params_from_toml("temperature_offset_c = 10.0\n").expect("valid config");
-    let warm = build_world(0, Some(&params)).expect("pipeline succeeds");
-    let plain = build_world(0, None).expect("pipeline succeeds");
+    let warm = build_fixture_world(0, Some(&params)).expect("pipeline succeeds");
+    let plain = build_fixture_world(0, None).expect("pipeline succeeds");
     assert_ne!(warm.to_bytes(), plain.to_bytes(), "config must matter");
 }
