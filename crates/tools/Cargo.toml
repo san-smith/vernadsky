@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 vernadsky-core = { path = "../core", version = "0.1.0" }
 vernadsky-climate = { path = "../climate", version = "0.1.0" }
+vernadsky-biome = { path = "../biome", version = "0.1.0" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"

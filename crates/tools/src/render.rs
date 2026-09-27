@@ -146,7 +146,14 @@ pub fn rasterize(world: &GeographicWorld, layer: Layer) -> Option<Raster> {
         Layer::Biome => {
             let values = world.biomes.biome.as_ref()?;
             for value in values {
-                pixels.push(categorical(u64::from(value.0)));
+                // Registry colors are canonical; unknown identifiers
+                // (from a newer generator) fall back to the categorical
+                // palette.
+                pixels.push(
+                    vernadsky_biome::entry(*value)
+                        .map(|registry_entry| registry_entry.color)
+                        .unwrap_or_else(|| categorical(u64::from(value.0))),
+                );
             }
         }
         Layer::Territory => {
