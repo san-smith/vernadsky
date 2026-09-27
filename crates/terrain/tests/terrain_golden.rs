@@ -34,21 +34,21 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// manifest seed, on the reference platform (Linux x86_64, pinned
 /// toolchain), with the default stage configurations.
 const MANIFEST_HASHES_ERODED: [u64; 5] = [
-    0xcea1_5d68_3617_27e2,
-    0xe0fb_5d9d_6a87_7b72,
-    0x1dd1_6203_6372_94f8,
-    0x0ba0_0ace_1af2_ba7c,
-    0xded7_cd0b_70ee_1c5b,
+    0x99d3_8c34_e61f_048d,
+    0x1b86_a4ce_8c64_9c59,
+    0x71dc_d5e5_6713_4c3b,
+    0x5bbc_38de_7b96_f493,
+    0xc262_1a59_6021_d450,
 ];
 
 /// Content hashes of the no-erosion profile: the same pipeline with
 /// `erosion_enabled = false`.
 const MANIFEST_HASHES_PLAIN: [u64; 5] = [
-    0xd05e_fafc_db04_6bd4,
-    0x8587_f79e_bf7c_156f,
-    0xa30a_d812_9443_2dc0,
-    0xdd30_0e86_3500_02cf,
-    0xdb28_9e6d_7100_2134,
+    0x7637_1e0b_2c32_d71f,
+    0xa908_3b66_37ea_6a10,
+    0x757e_b8a7_c997_ce07,
+    0x371d_92bf_303a_3b3c,
+    0x4243_c7fe_ff31_779b,
 ];
 
 /// Fixture grid of the golden runs (the fixture world dimensions).

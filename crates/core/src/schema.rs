@@ -1,4 +1,4 @@
-//! The `GeographicWorld` schema, version 0.
+//! The `GeographicWorld` schema, version 1.
 //!
 //! This is the frozen data contract of the generator: grid, territories,
 //! regions, water bodies, rivers, and the stage-owned sections (climate,
@@ -17,7 +17,17 @@ use crate::quant::{CentiScalar, HeightM, HumidDeciPct, NatPotential, PrecipMmYr,
 
 /// Schema version written by this crate. Any change to the meaning of an
 /// existing field bumps this value.
-pub const SCHEMA_VERSION: u32 = 0;
+///
+/// - `1` adds the biome registry version to the header (the layout of
+///   every other field is unchanged).
+/// - `0` is the pre-biome layout; files of both versions remain readable.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// Version of the biome registry that owns the interpretation of
+/// [`BiomeId`] values in this schema. The constant lives here — the
+/// schema contract — while the registry table itself lives in
+/// `vernadsky-biome`.
+pub const BIOME_REGISTRY: &str = "biomes-v1";
 
 /// Sentinel for "no index" in cell back-references (`u32::MAX`). It is an
 /// array-index sentinel, distinct from the reserved identifier value `0`.

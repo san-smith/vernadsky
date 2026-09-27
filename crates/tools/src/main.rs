@@ -22,6 +22,10 @@ enum Source {
     /// A synthetic world built from a seed through the current pipeline.
     Seed {
         seed: u64,
+        width: u32,
+        grid_height: u32,
+        land_count: usize,
+        water_count: usize,
         no_climate: bool,
         config: Option<PathBuf>,
     },
@@ -47,6 +51,18 @@ enum Command {
         /// Path to a canonical export file (.gwb).
         #[arg(long, required_unless_present = "seed", conflicts_with = "seed")]
         input: Option<PathBuf>,
+        /// Grid width in cells (with --seed).
+        #[arg(long, default_value_t = 48)]
+        width: u32,
+        /// Grid height in cells (with --seed).
+        #[arg(long, default_value_t = 32)]
+        grid_height: u32,
+        /// Land territory count (with --seed).
+        #[arg(long, default_value_t = 12)]
+        land_count: usize,
+        /// Water territory count (with --seed).
+        #[arg(long, default_value_t = 8)]
+        water_count: usize,
         /// Output path prefix; one PNG per available layer.
         #[arg(long, default_value = "map")]
         out: PathBuf,
@@ -65,6 +81,18 @@ enum Command {
         /// World seed: synthetic world built through the current pipeline.
         #[arg(long)]
         seed: u64,
+        /// Grid width in cells.
+        #[arg(long, default_value_t = 48)]
+        width: u32,
+        /// Grid height in cells.
+        #[arg(long, default_value_t = 32)]
+        grid_height: u32,
+        /// Land territory count.
+        #[arg(long, default_value_t = 12)]
+        land_count: usize,
+        /// Water territory count.
+        #[arg(long, default_value_t = 8)]
+        water_count: usize,
         /// Output file path.
         #[arg(long)]
         out: PathBuf,
@@ -72,6 +100,12 @@ enum Command {
         /// default configuration applies.
         #[arg(long)]
         config: Option<PathBuf>,
+    },
+    /// Validate a canonical export file and print a summary.
+    Validate {
+        /// Path to a canonical export file (.gwb).
+        #[arg(long)]
+        input: PathBuf,
     },
 }
 
@@ -81,6 +115,10 @@ fn main() -> anyhow::Result<()> {
             seed,
             input,
             out,
+            width,
+            grid_height,
+            land_count,
+            water_count,
             no_climate,
             config,
             zoom: factor,
@@ -89,6 +127,10 @@ fn main() -> anyhow::Result<()> {
                 (Some(path), _) => Source::File(path),
                 (None, Some(seed)) => Source::Seed {
                     seed,
+                    width,
+                    grid_height,
+                    land_count,
+                    water_count,
                     no_climate,
                     config,
                 },
@@ -96,7 +138,24 @@ fn main() -> anyhow::Result<()> {
             };
             cmd_render(&source, &out, factor)
         }
-        Command::Dump { seed, out, config } => cmd_dump(seed, &out, config.as_deref()),
+        Command::Validate { input } => cmd_validate(&input),
+        Command::Dump {
+            seed,
+            width,
+            grid_height,
+            land_count,
+            water_count,
+            out,
+            config,
+        } => cmd_dump(
+            seed,
+            width,
+            grid_height,
+            land_count,
+            water_count,
+            &out,
+            config.as_deref(),
+        ),
     }
 }
 
@@ -110,6 +169,10 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
         }
         Source::Seed {
             seed,
+            width,
+            grid_height,
+            land_count,
+            water_count,
             no_climate,
             config,
         } => {
@@ -128,7 +191,14 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
                         .context("default climate config")?,
                 })
             };
-            build_world(*seed, climate.as_ref())
+            build_world(
+                *seed,
+                *width,
+                *grid_height,
+                *land_count,
+                *water_count,
+                climate.as_ref(),
+            )
         }
     }
 }
@@ -155,9 +225,14 @@ fn cmd_render(source: &Source, out: &std::path::Path, factor: u32) -> anyhow::Re
 
 fn cmd_dump(
     seed: u64,
+    width: u32,
+    height: u32,
+    land_count: usize,
+    water_count: usize,
     out: &std::path::Path,
     config: Option<&std::path::Path>,
 ) -> anyhow::Result<()> {
+    let started = std::time::Instant::now();
     let climate = match config {
         Some(path) => {
             let source = std::fs::read_to_string(path)
@@ -170,10 +245,24 @@ fn cmd_dump(
                 .context("default climate config")?,
         ),
     };
-    let world = build_world(seed, climate.as_ref())?;
+    let world = build_world(
+        seed,
+        width,
+        height,
+        land_count,
+        water_count,
+        climate.as_ref(),
+    )?;
+    let elapsed = started.elapsed();
     std::fs::write(out, world.to_bytes())
         .with_context(|| format!("cannot write {}", out.display()))?;
-    println!("world written to {}", out.display());
+    println!(
+        "world written to {} ({} cells, {} territories, pipeline {:.2?})",
+        out.display(),
+        world.grid.cells.len(),
+        world.territories.len(),
+        elapsed
+    );
     Ok(())
 }
 
@@ -181,6 +270,27 @@ fn path_with_layer(out: &std::path::Path, layer: &str) -> PathBuf {
     let mut name = out.as_os_str().to_owned();
     name.push(format!(".{layer}.png"));
     PathBuf::from(name)
+}
+
+/// Reads and validates an export file, printing a summary.
+fn cmd_validate(input: &std::path::Path) -> anyhow::Result<()> {
+    let bytes = std::fs::read(input)
+        .with_context(|| format!("cannot read export file {}", input.display()))?;
+    let world = vernadsky_core::GeographicWorld::from_bytes(&bytes)
+        .with_context(|| format!("cannot decode export file {}", input.display()))?;
+    println!(
+        "valid export {}: {}×{} cells, {} territories, {} regions, {} water bodies, {} rivers; seed {:#018x}, params version {}",
+        input.display(),
+        world.grid.width,
+        world.grid.height,
+        world.territories.len(),
+        world.regions.len(),
+        world.water_bodies.len(),
+        world.rivers.len(),
+        world.params.seed,
+        world.params.params_version,
+    );
+    Ok(())
 }
 
 fn save_png(raster: &Raster, path: &std::path::Path) -> anyhow::Result<()> {

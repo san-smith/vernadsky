@@ -28,16 +28,16 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// platform (Linux x86_64, pinned toolchain). Cross-platform comparisons
 /// with tolerances are the E-13 run's job, not this manifest's.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x3cdf_c338_07a1_0c27,
-    0xcc9c_562d_536d_9044,
-    0x35a0_e497_54a3_999f,
-    0x5570_976b_443f_5a99,
-    0x28fc_091e_440b_c05e,
+    0x7f78_487d_ec4c_1360,
+    0xc8b0_bc78_c117_9f1b,
+    0x9019_7285_48fa_dfe0,
+    0x7431_6597_008f_a09e,
+    0x2023_0f42_44df_993d,
 ];
 
 #[test]
 fn manifest_pins_the_contract_versions() {
-    assert_eq!(SCHEMA_VERSION, 0);
+    assert_eq!(SCHEMA_VERSION, 1);
     assert_eq!(ID_STRATEGY, "content-hash-v1");
     assert_eq!(LATTICE_REGISTRY_VERSION, "lr-v1");
     assert_eq!(RNG_STRATEGY, "rng-streams-v1");

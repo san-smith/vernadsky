@@ -32,11 +32,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// on the reference platform (Linux x86_64, pinned toolchain), with the
 /// default stage configuration.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x228c_7137_8634_ab90,
-    0xb0d5_c4ba_6fc0_e38b,
-    0xe62c_be08_fac5_db07,
-    0x0f2f_925c_aa33_d184,
-    0x9b47_518c_8a83_a113,
+    0x2976_6b38_1fbf_e0d7,
+    0x2d8e_7cfe_16b3_ba08,
+    0x638b_51c9_d366_0dc8,
+    0x6b51_458a_5a4c_f50f,
+    0x10fd_ffb7_b2e2_1358,
 ];
 
 /// Builds a synthetic world with the climate stage applied (default
