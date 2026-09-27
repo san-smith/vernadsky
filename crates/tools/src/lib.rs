@@ -18,7 +18,7 @@ use vernadsky_core::schema::ClimateParams;
 use vernadsky_core::{GeographicWorld, RngStreams, seeded_world};
 
 /// Builds a synthetic world for `seed`, optionally applying the climate
-/// stage (the default configuration unless overridden).
+/// and biome stages (the default configuration unless overridden).
 ///
 /// This mirrors the current generation pipeline; the resulting world is
 /// the same one the export files carry.
@@ -27,6 +27,8 @@ pub fn build_world(seed: u64, climate: Option<&ClimateParams>) -> anyhow::Result
     if let Some(params) = climate {
         vernadsky_climate::generate(&mut world, params, &RngStreams::new(seed))
             .context("climate stage failed")?;
+        vernadsky_biome::generate(&mut world, &RngStreams::new(seed))
+            .context("biome stage failed")?;
     }
     Ok(world)
 }

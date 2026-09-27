@@ -66,6 +66,27 @@ fn absent_sections_are_reported_as_none() {
 }
 
 #[test]
+fn biome_layer_uses_registry_colors() {
+    let mut world = seeded_world(0);
+    let params = vernadsky_climate::ClimateConfig::default()
+        .to_params()
+        .expect("default config is valid");
+    vernadsky_climate::generate(&mut world, &params, &RngStreams::new(0))
+        .expect("climate stage succeeds");
+    vernadsky_biome::generate(&mut world, &RngStreams::new(0)).expect("biome stage succeeds");
+
+    let raster = rasterize(&world, Layer::Biome).expect("biome section is filled");
+    for pixel in &raster.pixels {
+        assert!(
+            vernadsky_biome::registry::REGISTRY
+                .iter()
+                .any(|entry| &entry.color == pixel),
+            "biome pixel {pixel:?} must be a registry color"
+        );
+    }
+}
+
+#[test]
 fn zoom_preserves_content_dimensions() {
     let world = world_with_climate(0);
     let raster = rasterize(&world, Layer::Temperature).expect("climate present");
