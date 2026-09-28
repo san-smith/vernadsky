@@ -245,10 +245,10 @@ pub fn generate(
     let terrain = world.params.terrain.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {
-        params_version: if hydrology.is_some() {
+        params_version: if terrain.is_some() {
+            4
+        } else if hydrology.is_some() {
             3
-        } else if terrain.is_some() {
-            2
         } else {
             1
         },
