@@ -32,11 +32,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// the reference platform (Linux x86_64, pinned toolchain), with the
 /// default stage configurations.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x37ca_b152_1295_1ea5,
-    0xa43e_25f6_3fb2_5146,
-    0xfb2c_cb35_9128_b9cd,
-    0x56c3_c409_7f0c_6a0b,
-    0x47c8_6bda_0c8e_c206,
+    0xd67c_157e_8e06_5b1a,
+    0x59df_12c7_95f5_4ded,
+    0x90e5_f334_0829_7566,
+    0xc252_e8d3_faab_ea78,
+    0x41ab_384b_9e1f_2215,
 ];
 
 /// Builds a synthetic world through the full current pipeline.
@@ -47,7 +47,8 @@ fn world_with_hydrology(seed: u64) -> GeographicWorld {
         .expect("the default configuration is valid");
     climate(&mut world, &params, &RngStreams::new(seed)).expect("the climate stage succeeds");
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
-    generate(&mut world).expect("the hydrology stage succeeds");
+    generate(&mut world, &vernadsky_core::HydrologyParams::default())
+        .expect("the hydrology stage succeeds");
     world
 }
 

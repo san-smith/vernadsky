@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 use image::{ImageBuffer, Rgb};
 
 use vernadsky_tools::render::{Layer, Raster, rasterize, zoom};
-use vernadsky_tools::{build_world, climate_params_from_toml};
+use vernadsky_tools::{build_world, climate_params_from_toml, hydrology_params_from_toml};
 
 /// How the world under rendering is produced.
 #[derive(Clone, Debug)]
@@ -28,6 +28,7 @@ enum Source {
         water_count: usize,
         no_climate: bool,
         config: Option<PathBuf>,
+        hydrology_config: Option<PathBuf>,
     },
 }
 
@@ -72,6 +73,9 @@ enum Command {
         /// TOML configuration of the climate stage (with --seed).
         #[arg(long)]
         config: Option<PathBuf>,
+        /// TOML configuration of the hydrology stage (with --seed).
+        #[arg(long)]
+        hydrology_config: Option<PathBuf>,
         /// Nearest-neighbor upscale factor for readability.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=16))]
         zoom: u32,
@@ -100,6 +104,10 @@ enum Command {
         /// default configuration applies.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// TOML configuration of the hydrology stage; without it the
+        /// default configuration applies.
+        #[arg(long)]
+        hydrology_config: Option<PathBuf>,
     },
     /// Validate a canonical export file and print a summary.
     Validate {
@@ -121,6 +129,7 @@ fn main() -> anyhow::Result<()> {
             water_count,
             no_climate,
             config,
+            hydrology_config,
             zoom: factor,
         } => {
             let source = match (input, seed) {
@@ -133,6 +142,7 @@ fn main() -> anyhow::Result<()> {
                     water_count,
                     no_climate,
                     config,
+                    hydrology_config,
                 },
                 (None, None) => unreachable!("clap enforces seed or input"),
             };
@@ -147,6 +157,7 @@ fn main() -> anyhow::Result<()> {
             water_count,
             out,
             config,
+            hydrology_config,
         } => cmd_dump(
             seed,
             width,
@@ -155,6 +166,7 @@ fn main() -> anyhow::Result<()> {
             water_count,
             &out,
             config.as_deref(),
+            hydrology_config.as_deref(),
         ),
     }
 }
@@ -175,6 +187,7 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
             water_count,
             no_climate,
             config,
+            hydrology_config,
         } => {
             let climate = if *no_climate {
                 None
@@ -191,6 +204,15 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
                         .context("default climate config")?,
                 })
             };
+            let hydrology = match hydrology_config {
+                Some(path) => {
+                    let source = std::fs::read_to_string(path).with_context(|| {
+                        format!("cannot read hydrology config {}", path.display())
+                    })?;
+                    Some(hydrology_params_from_toml(&source)?)
+                }
+                None => None,
+            };
             build_world(
                 *seed,
                 *width,
@@ -198,6 +220,7 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
                 *land_count,
                 *water_count,
                 climate.as_ref(),
+                hydrology.as_ref(),
             )
         }
     }
@@ -223,6 +246,8 @@ fn cmd_render(source: &Source, out: &std::path::Path, factor: u32) -> anyhow::Re
     Ok(())
 }
 
+// CLI plumbing: the dump command mirrors its clap arguments one to one.
+#[allow(clippy::too_many_arguments)]
 fn cmd_dump(
     seed: u64,
     width: u32,
@@ -231,6 +256,7 @@ fn cmd_dump(
     water_count: usize,
     out: &std::path::Path,
     config: Option<&std::path::Path>,
+    hydrology_config: Option<&std::path::Path>,
 ) -> anyhow::Result<()> {
     let started = std::time::Instant::now();
     let climate = match config {
@@ -245,6 +271,14 @@ fn cmd_dump(
                 .context("default climate config")?,
         ),
     };
+    let hydrology = match hydrology_config {
+        Some(path) => {
+            let source = std::fs::read_to_string(path)
+                .with_context(|| format!("cannot read hydrology config {}", path.display()))?;
+            Some(hydrology_params_from_toml(&source)?)
+        }
+        None => None,
+    };
     let world = build_world(
         seed,
         width,
@@ -252,6 +286,7 @@ fn cmd_dump(
         land_count,
         water_count,
         climate.as_ref(),
+        hydrology.as_ref(),
     )?;
     let elapsed = started.elapsed();
     std::fs::write(out, world.to_bytes())

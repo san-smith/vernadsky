@@ -22,8 +22,9 @@ use crate::quant::{
 };
 use crate::schema::{
     Anchor, BIOME_REGISTRY, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
-    ErosionParams, GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord,
-    RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    ErosionParams, GenerationParams, GeographicWorld, GridSection, HydrologyParams, NO_INDEX,
+    RegionRecord, RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind,
+    WaterBodyRecord,
 };
 
 /// File magic of the canonical export format.
@@ -200,10 +201,13 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     write_str(&mut b, LATTICE_REGISTRY_VERSION.as_bytes());
     write_str(&mut b, BIOME_REGISTRY.as_bytes());
     // The params version is derived from the structure: worlds with a
-    // terrain block are version 2, worlds with only climate parameters
-    // are version 1, bare-seed worlds are version 0. Version 2 carries
-    // the block-presence flags; versions 0 and 1 predate the flags.
-    let version = if world.params.terrain.is_some() {
+    // hydrology block are version 3, worlds with a terrain block are
+    // version 2, worlds with only climate parameters are version 1,
+    // bare-seed worlds are version 0. Versions 2 and 3 carry the
+    // block-presence flags; versions 0 and 1 predate the flags.
+    let version = if world.params.hydrology.is_some() {
+        3
+    } else if world.params.terrain.is_some() {
         2
     } else if world.params.climate.is_some() {
         1
@@ -216,8 +220,14 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     );
     b.extend_from_slice(&version.to_le_bytes());
     b.extend_from_slice(&world.params.seed.to_le_bytes());
-    if version == 2 {
-        let mut flags = 0b10; // version 2 implies the terrain block
+    if version >= 2 {
+        let mut flags = 0;
+        if world.params.terrain.is_some() {
+            flags |= 0b10;
+        }
+        if world.params.hydrology.is_some() {
+            flags |= 0b100;
+        }
         if world.params.climate.is_some() {
             flags |= 0b01;
         }
@@ -239,6 +249,9 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
                 b.extend_from_slice(&erosion.talus.0.to_le_bytes());
             }
         }
+    }
+    if let Some(hydrology) = &world.params.hydrology {
+        b.extend_from_slice(&hydrology.river_land_share.0.to_le_bytes());
     }
 
     // Grid.
@@ -363,17 +376,29 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
     }
     let params_version = r.take_u32()?;
     let seed = r.take_u64()?;
-    let (climate_params, terrain_params) = match params_version {
-        0 => (None, None),
-        1 => (
-            Some(ClimateParams {
-                temperature_offset: TempDeciC(r.take_i16()?),
-                polar_amplification: CentiScalar(r.take_i16()?),
-                latitude_exponent: CentiScalar(r.take_i16()?),
-                humidity_offset: CentiScalar(r.take_i16()?),
+    let read_climate = |r: &mut Reader<'_>| {
+        Ok(ClimateParams {
+            temperature_offset: TempDeciC(r.take_i16()?),
+            polar_amplification: CentiScalar(r.take_i16()?),
+            latitude_exponent: CentiScalar(r.take_i16()?),
+            humidity_offset: CentiScalar(r.take_i16()?),
+        })
+    };
+    let read_terrain = |r: &mut Reader<'_>| {
+        let erosion = match r.take_u8()? {
+            0 => None,
+            1 => Some(ErosionParams {
+                droplets_per_hundred_cells: CentiScalar(r.take_i16()?),
+                power: CentiScalar(r.take_i16()?),
+                talus: HeightM(r.take_i32()?),
             }),
-            None,
-        ),
+            other => return Err(FormatError::InvalidBool(other)),
+        };
+        Ok(TerrainParams { erosion })
+    };
+    let (climate_params, terrain_params, hydrology_params) = match params_version {
+        0 => (None, None, None),
+        1 => (Some(read_climate(&mut r)?), None, None),
         2 => {
             // Version 2 carries the block-presence flags: bit 0 climate,
             // bit 1 terrain. Version 2 implies the terrain block; the
@@ -384,25 +409,34 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
                 return Err(FormatError::InvalidParamsFlags(flags));
             }
             let climate_params = if flags & 0b01 != 0 {
-                Some(ClimateParams {
-                    temperature_offset: TempDeciC(r.take_i16()?),
-                    polar_amplification: CentiScalar(r.take_i16()?),
-                    latitude_exponent: CentiScalar(r.take_i16()?),
-                    humidity_offset: CentiScalar(r.take_i16()?),
-                })
+                Some(read_climate(&mut r)?)
             } else {
                 None
             };
-            let erosion = match r.take_u8()? {
-                0 => None,
-                1 => Some(ErosionParams {
-                    droplets_per_hundred_cells: CentiScalar(r.take_i16()?),
-                    power: CentiScalar(r.take_i16()?),
-                    talus: HeightM(r.take_i32()?),
-                }),
-                other => return Err(FormatError::InvalidBool(other)),
+            (climate_params, Some(read_terrain(&mut r)?), None)
+        }
+        3 => {
+            // Version 3 adds bit 2 hydrology and implies the hydrology
+            // block; the terrain and climate blocks are optional per
+            // their flags.
+            let flags = r.take_u8()?;
+            if flags & 0b100 == 0 {
+                return Err(FormatError::InvalidParamsFlags(flags));
+            }
+            let climate_params = if flags & 0b01 != 0 {
+                Some(read_climate(&mut r)?)
+            } else {
+                None
             };
-            (climate_params, Some(TerrainParams { erosion }))
+            let terrain_params = if flags & 0b10 != 0 {
+                Some(read_terrain(&mut r)?)
+            } else {
+                None
+            };
+            let hydrology_params = Some(HydrologyParams {
+                river_land_share: CentiScalar(r.take_i16()?),
+            });
+            (climate_params, terrain_params, hydrology_params)
         }
         other => return Err(FormatError::UnsupportedParamsVersion(other)),
     };
@@ -496,6 +530,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
             seed,
             climate: climate_params,
             terrain: terrain_params,
+            hydrology: hydrology_params,
         },
         grid,
         territories,
@@ -1045,6 +1080,7 @@ mod tests {
                 humidity_offset: CentiScalar(30),
             }),
             terrain: None,
+            hydrology: None,
         };
         world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
         let bytes = world.to_bytes();
@@ -1070,6 +1106,7 @@ mod tests {
                     talus: HeightM(120),
                 }),
             }),
+            hydrology: None,
         };
         world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
         let bytes = world.to_bytes();
@@ -1092,6 +1129,7 @@ mod tests {
             seed: 7,
             climate: None,
             terrain: Some(TerrainParams { erosion: None }),
+            hydrology: None,
         };
         let mut bytes = world.to_bytes();
         // Header layout: magic (4) + schema_version (4) + id strategy
@@ -1103,6 +1141,93 @@ mod tests {
         let tail = bytes.len() - 8;
         bytes[tail..].copy_from_slice(&hash.to_le_bytes());
         assert_eq!(from_bytes(&bytes), Err(FormatError::InvalidParamsFlags(0)));
+    }
+
+    #[test]
+    fn round_trips_hydrology_parameters() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: 3,
+            seed: 0x5EED,
+            climate: Some(ClimateParams {
+                temperature_offset: TempDeciC(-25),
+                polar_amplification: CentiScalar(150),
+                latitude_exponent: CentiScalar(100),
+                humidity_offset: CentiScalar(30),
+            }),
+            terrain: Some(TerrainParams { erosion: None }),
+            hydrology: Some(HydrologyParams {
+                river_land_share: CentiScalar(12),
+            }),
+        };
+        world.climate.temperature = Some(vec![TempDeciC(120); world.grid.cells.len()]);
+        let bytes = world.to_bytes();
+        assert_eq!(from_bytes(&bytes).expect("valid"), world);
+
+        // The minimal v3 profile carries no climate or terrain blocks.
+        world.params.climate = None;
+        world.params.terrain = None;
+        world.climate.temperature = None;
+        let bytes = world.to_bytes();
+        let decoded = from_bytes(&bytes).expect("valid");
+        assert!(decoded.params.climate.is_none());
+        assert!(decoded.params.terrain.is_none());
+        assert!(decoded.params.hydrology.is_some());
+    }
+
+    #[test]
+    fn rejects_inconsistent_hydrology_flags() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: 3,
+            seed: 7,
+            climate: None,
+            terrain: None,
+            hydrology: Some(HydrologyParams {
+                river_land_share: CentiScalar(12),
+            }),
+        };
+        let mut bytes = world.to_bytes();
+        // The params flags byte follows the params version and the seed.
+        let offset = params_offset() + 4 + 8;
+        bytes[offset] = 0; // hydrology bit cleared: inconsistent with version 3
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(from_bytes(&bytes), Err(FormatError::InvalidParamsFlags(0)));
+    }
+
+    #[test]
+    fn rejects_unknown_params_versions() {
+        let mut world = synthetic::minimal_world();
+        world.params.params_version = 3;
+        world.params.hydrology = Some(HydrologyParams {
+            river_land_share: CentiScalar(12),
+        });
+        let mut bytes = world.to_bytes();
+        // Patch the params version to a value this reader does not know;
+        // keep the content hash consistent so the version gate is what
+        // rejects the file.
+        let offset = params_offset();
+        bytes[offset..offset + 4].copy_from_slice(&4u32.to_le_bytes());
+        let hash = fnv1a64(&bytes[..bytes.len() - 8]);
+        let tail = bytes.len() - 8;
+        bytes[tail..].copy_from_slice(&hash.to_le_bytes());
+        assert_eq!(
+            from_bytes(&bytes),
+            Err(FormatError::UnsupportedParamsVersion(4))
+        );
+    }
+
+    #[test]
+    fn reads_legacy_params_v2_exports() {
+        // Committed at the pre-hydrology-params revision: the reader
+        // must keep accepting files whose params stop at version 2.
+        let bytes = include_bytes!("../tests/golden/params_v2_world.gwb");
+        let world = from_bytes(bytes).expect("the legacy params-v2 export stays readable");
+        assert_eq!(world.params.params_version, 2);
+        assert!(world.params.hydrology.is_none());
+        assert!(!world.rivers.is_empty(), "the fixture carries its rivers");
     }
 
     #[test]

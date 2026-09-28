@@ -36,6 +36,7 @@ pub fn build_fixture_world(
         FIXTURE_LAND_COUNT,
         FIXTURE_WATER_COUNT,
         climate,
+        None,
     )
 }
 
@@ -53,6 +54,7 @@ pub fn build_world(
     land_count: usize,
     water_count: usize,
     climate: Option<&ClimateParams>,
+    hydrology: Option<&vernadsky_core::HydrologyParams>,
 ) -> anyhow::Result<GeographicWorld> {
     let mut world = vernadsky_core::skeleton_world(width, height, seed);
     let terrain_params = vernadsky_terrain::TerrainConfig::default()
@@ -65,7 +67,14 @@ pub fn build_world(
             .context("climate stage failed")?;
         vernadsky_biome::generate(&mut world, &RngStreams::new(seed))
             .context("biome stage failed")?;
-        vernadsky_hydrology::generate(&mut world).context("hydrology stage failed")?;
+        let hydrology_params = match hydrology {
+            Some(params) => *params,
+            None => vernadsky_hydrology::HydrologyConfig::default()
+                .to_params()
+                .context("default hydrology config")?,
+        };
+        vernadsky_hydrology::generate(&mut world, &hydrology_params)
+            .context("hydrology stage failed")?;
         vernadsky_territory::generate(&mut world, land_count, water_count)
             .context("territory stage failed")?;
         vernadsky_territory::generate_regions(&mut world).context("regions failed")?;
@@ -77,4 +86,9 @@ pub fn build_world(
 /// Parses climate parameters from a TOML document.
 pub fn climate_params_from_toml(source: &str) -> anyhow::Result<ClimateParams> {
     vernadsky_climate::params::from_toml_str(source).context("invalid climate config")
+}
+
+/// Parses hydrology parameters from a TOML document.
+pub fn hydrology_params_from_toml(source: &str) -> anyhow::Result<vernadsky_core::HydrologyParams> {
+    vernadsky_hydrology::params::from_toml_str(source).context("invalid hydrology config")
 }

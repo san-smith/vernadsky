@@ -259,11 +259,13 @@ pub fn generate(
     // The terrain block is installed without clobbering the climate
     // block; the params version tracks the terrain block (2).
     let climate = world.params.climate.clone();
+    let hydrology = world.params.hydrology;
     world.params = GenerationParams {
-        params_version: 2,
+        params_version: if hydrology.is_some() { 3 } else { 2 },
         seed: world.params.seed,
         climate,
         terrain: Some(params.clone()),
+        hydrology,
     };
     Ok(())
 }

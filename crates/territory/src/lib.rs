@@ -565,7 +565,6 @@ fn even_sample(ordered: &[usize], count: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vernadsky_core::quant::HeightM;
     use vernadsky_core::{RngStreams, seeded_world, skeleton_world};
 
     /// A uniform test world: all land, one climate everywhere — every

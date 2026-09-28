@@ -163,8 +163,8 @@ fn built_world_dump_round_trips() {
     let world = build_fixture_world(42, Some(&params)).expect("pipeline succeeds");
     let bytes = world.to_bytes();
     assert_eq!(
-        world.params.params_version, 2,
-        "terrain and climate applied"
+        world.params.params_version, 3,
+        "terrain, climate, and hydrology applied"
     );
     assert!(world.params.terrain.is_some(), "terrain parameters applied");
     let decoded = GeographicWorld::from_bytes(&bytes).expect("valid export");

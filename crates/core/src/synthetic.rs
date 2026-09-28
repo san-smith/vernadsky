@@ -221,6 +221,7 @@ pub fn seeded_world(seed: u64) -> GeographicWorld {
             seed,
             climate: None,
             terrain: None,
+            hydrology: None,
         },
         grid: GridSection {
             width: WIDTH,
@@ -274,6 +275,7 @@ pub fn skeleton_world(width: u32, height: u32, seed: u64) -> GeographicWorld {
             seed,
             climate: None,
             terrain: None,
+            hydrology: None,
         },
         grid: GridSection {
             width,

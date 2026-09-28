@@ -9,38 +9,45 @@
 //! and every path keeps its full length to its mouth.
 
 use vernadsky_core::idgen::IdAssigner;
+use vernadsky_core::quant::CentiScalar;
 use vernadsky_core::schema::CellRecord;
 use vernadsky_core::{Anchor, BiomeId, CellId, RiverId};
 
 use crate::HydrologyError;
 
-/// The river tuning of one generation run: which registry biomes
-/// produce no flow or evaporate it, and the minimal drainage (in cells'
-/// worth of starting flow) for a land cell to carry a river.
+/// The absolute floor of the drainage threshold, in cells' worth of
+/// starting flow: the mapgen port value. The floor only binds on tiny
+/// worlds — a land-share threshold would drop below one cell there and
+/// dissolve the river network (the synthetic fixture's drainage caps at
+/// roughly the island radius, ~13 cells).
+pub(crate) const THRESHOLD_FLOOR: f64 = 8.0;
+
+/// The drainage threshold of a river cell for one land component: the
+/// maximum of the absolute floor and the configured share of the
+/// component's land cells. Per-component scaling keeps every landmass's
+/// river network proportional to its own size — a fragmented
+/// archipelago keeps rivers, and a supercontinent does not drown in
+/// them. The share keeps the network consistent across grid
+/// resolutions; the floor keeps tiny worlds from dissolving it.
 ///
-/// The default threshold is tuned so the fixture worlds carry rivers:
-/// the synthetic paraboloid routes flow in radial rays, so a cell's
-/// drainage caps at roughly the island radius (~13 cells). The whole
-/// configuration becomes the params v2 balance surface once balancing
-/// starts.
+/// Flow units approximate cells' worth of starting flow (deserts
+/// evaporate, ice never starts), so the land-cell count is the natural
+/// base; this is an approximation by design and documented as such.
+pub(crate) fn river_threshold(share: CentiScalar, component_land_cells: usize) -> f64 {
+    let fraction = f64::from(share.0) * CentiScalar::QUANTUM / 100.0;
+    (fraction * component_land_cells as f64).max(THRESHOLD_FLOOR)
+}
+
+/// The river tuning of one generation run: which registry biomes
+/// produce no flow or evaporate it. The drainage threshold travels
+/// separately as a per-cell slice — [`river_threshold`] derives it per
+/// land component from the configured share.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RiverConfig {
     /// The biome whose cells produce no flow.
     pub ice: BiomeId,
     /// The biome that evaporates half of the passing flow.
     pub desert: BiomeId,
-    /// Minimal drainage for a river cell.
-    pub threshold: f64,
-}
-
-impl Default for RiverConfig {
-    fn default() -> Self {
-        Self {
-            ice: BiomeId(5),
-            desert: BiomeId(13),
-            threshold: 8.0,
-        }
-    }
 }
 
 /// The eight neighbor offsets, in fixed scan order (the map is seamless
@@ -77,13 +84,10 @@ pub(crate) fn network(
     width: u32,
     height: u32,
     config: RiverConfig,
+    cell_threshold: &[f64],
     assigner: &mut IdAssigner,
 ) -> Result<Vec<RiverPath>, HydrologyError> {
-    let RiverConfig {
-        ice,
-        desert,
-        threshold: river_threshold,
-    } = config;
+    let RiverConfig { ice, desert } = config;
     let w = width as usize;
     let h = height as usize;
     let cell_count = cells.len();
@@ -125,7 +129,7 @@ pub(crate) fn network(
 
     // --- River cells and their sources ---
     let is_river: Vec<bool> = (0..cell_count)
-        .map(|index| !cells[index].is_water && flow[index] >= river_threshold)
+        .map(|index| !cells[index].is_water && flow[index] >= cell_threshold[index])
         .collect();
     let mut has_tributary = vec![false; cell_count];
     for index in 0..cell_count {
@@ -218,6 +222,7 @@ mod tests {
         let cells = cone_world(120);
         let biomes = all_land_biomes(&cells, BiomeId(10)); // Grassland everywhere
         let mut assigner = IdAssigner::new();
+        let cell_thresholds = vec![3.0; 7 * 7];
         let paths = network(
             &cells,
             &biomes,
@@ -226,8 +231,8 @@ mod tests {
             RiverConfig {
                 ice: BiomeId(5),
                 desert: BiomeId(13),
-                threshold: 3.0,
             },
+            &cell_thresholds,
             &mut assigner,
         )
         .expect("paths");
@@ -260,6 +265,7 @@ mod tests {
         let cells = cone_world(120);
         let biomes = all_land_biomes(&cells, BiomeId(5)); // Ice everywhere on land
         let mut assigner = IdAssigner::new();
+        let cell_thresholds = vec![3.0; 7 * 7];
         let paths = network(
             &cells,
             &biomes,
@@ -268,8 +274,8 @@ mod tests {
             RiverConfig {
                 ice: BiomeId(5),
                 desert: BiomeId(13),
-                threshold: 3.0,
             },
+            &cell_thresholds,
             &mut assigner,
         )
         .expect("paths");
@@ -280,6 +286,7 @@ mod tests {
     fn identical_input_yields_identical_paths() {
         let cells = cone_world(200);
         let biomes = all_land_biomes(&cells, BiomeId(10));
+        let cell_thresholds = vec![3.0; 7 * 7];
         let run = |assigner: &mut IdAssigner| {
             network(
                 &cells,
@@ -289,8 +296,8 @@ mod tests {
                 RiverConfig {
                     ice: BiomeId(5),
                     desert: BiomeId(13),
-                    threshold: 3.0,
                 },
+                &cell_thresholds,
                 assigner,
             )
             .expect("paths")

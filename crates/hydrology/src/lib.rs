@@ -13,9 +13,13 @@
 //!   (ADR-0003).
 //! - **Rivers**: flow accumulation — cells sorted by height (descending,
 //!   canonical tie-break by cell index), each passing its flow to the
-//!   lowest of its 8 neighbors; cells draining at least
-//!   at least the configured drainage threshold form the river
-//!   network.
+//!   lowest of its 8 neighbors; cells draining at least the drainage
+//!   threshold form the river network. The threshold is
+//!   resolution-independent: the maximum of the absolute floor
+//!   (`8.0`, the mapgen port value) and [`HydrologyParams`]'s
+//!   `river_land_share` of the world's land cells — the share keeps
+//!   the network consistent across grid resolutions, the floor keeps
+//!   tiny worlds from dissolving it.
 //!   River paths run from each network source down the flow graph to
 //!   the sea; the mouth is the last land cell before the water.
 //!   Identifiers anchor at the mouth. Converging rivers share the
@@ -37,27 +41,33 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     use vernadsky_climate::{generate as climate, ClimateConfig};
 //!     use vernadsky_core::{seeded_world, RngStreams};
-//!     use vernadsky_hydrology::generate;
+//!     use vernadsky_hydrology::{generate, HydrologyConfig};
 //!
 //!     let mut world = seeded_world(42);
 //!     let params = ClimateConfig::default().to_params()?;
 //!     climate(&mut world, &params, &RngStreams::new(42))?;
 //!     vernadsky_biome::generate(&mut world, &RngStreams::new(42))?;
-//!     generate(&mut world)?;
+//!     let hydrology = HydrologyConfig::default().to_params()?;
+//!     generate(&mut world, &hydrology)?;
 //!
 //!     assert!(!world.water_bodies.is_empty());
 //!     Ok(())
 //! }
 //! ```
 
+pub mod params;
 pub mod rivers;
 pub mod water;
 
 use std::fmt;
 
 use vernadsky_core::idgen::IdAssigner;
-use vernadsky_core::schema::{GeographicWorld, NO_INDEX, RiverRecord, WaterBodyRecord};
+use vernadsky_core::schema::{
+    GeographicWorld, HydrologyParams, NO_INDEX, RiverRecord, WaterBodyRecord,
+};
 use vernadsky_core::{Anchor, BiomeId, CellId};
+
+pub use params::{HydrologyConfig, ParamsError};
 
 /// Errors of the hydrology stage.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,7 +116,10 @@ impl std::error::Error for HydrologyError {
 /// Replaces the water body classification, the river network, and the
 /// per-cell water body references. Pure with respect to `world`: no
 /// randomness, no wall-clock, no environment.
-pub fn generate(world: &mut GeographicWorld) -> Result<(), HydrologyError> {
+pub fn generate(
+    world: &mut GeographicWorld,
+    params: &HydrologyParams,
+) -> Result<(), HydrologyError> {
     let width = world.grid.width;
     let height = world.grid.height;
     let cell_count = width as usize * height as usize;
@@ -148,17 +161,26 @@ pub fn generate(world: &mut GeographicWorld) -> Result<(), HydrologyError> {
     }
 
     // --- Rivers: accumulate flow, extract source-to-mouth paths. ---
-    let river_config = rivers::RiverConfig {
-        ice,
-        desert,
-        ..rivers::RiverConfig::default()
-    };
+    //
+    // The river threshold scales with each land component's own size,
+    // so every landmass — continent or island — carries a network
+    // proportional to itself.
+    let land_components = water::surface_components(&world.grid.cells, width, height, false);
+    let mut cell_threshold = vec![0.0f64; cell_count];
+    for cells in &land_components {
+        let threshold = rivers::river_threshold(params.river_land_share, cells.len());
+        for &index in cells {
+            cell_threshold[index] = threshold;
+        }
+    }
+    let river_config = rivers::RiverConfig { ice, desert };
     let river_paths = rivers::network(
         &world.grid.cells,
         biomes,
         width,
         height,
         river_config,
+        &cell_threshold,
         &mut assigner,
     )?;
 
@@ -170,6 +192,8 @@ pub fn generate(world: &mut GeographicWorld) -> Result<(), HydrologyError> {
         cell.water_body = water_body_of_cell[index];
     }
     world.water_bodies = water_bodies;
+    world.params.hydrology = Some(*params);
+    world.params.params_version = 3;
     world.rivers = river_paths
         .into_iter()
         .map(|path| RiverRecord {

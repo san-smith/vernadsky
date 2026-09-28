@@ -33,11 +33,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// toolchain), with the default stage configurations and the fixture
 /// territory count.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x6601_a734_43c8_60df,
-    0xcb22_eb69_b9cb_3cf5,
-    0x13a7_8f73_c3a8_8800,
-    0x7ebc_03cd_77c1_7065,
-    0xab6d_6550_5ae6_ff46,
+    0x5dc9_0f27_778c_fe62,
+    0x4698_7703_3a14_a208,
+    0x822c_8b91_da8b_7439,
+    0x6465_35ef_ec13_3508,
+    0x96d6_9ec1_166a_5497,
 ];
 
 /// Fixture grid and partition sizes of the golden runs.
@@ -61,7 +61,8 @@ fn world_with_territories(seed: u64) -> GeographicWorld {
     climate(&mut world, &climate_params, &RngStreams::new(seed))
         .expect("the climate stage succeeds");
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
-    hydrology(&mut world).expect("the hydrology stage succeeds");
+    hydrology(&mut world, &vernadsky_core::HydrologyParams::default())
+        .expect("the hydrology stage succeeds");
     generate(&mut world, GOLDEN_LAND_COUNT, GOLDEN_WATER_COUNT).expect("the partition succeeds");
     generate_regions(&mut world).expect("the regions succeed");
     world
