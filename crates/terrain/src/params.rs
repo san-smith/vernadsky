@@ -12,6 +12,8 @@
 //! droplets_per_hundred_cells = 100.0   # drop count per 100 cells (1 %)
 //! power = 0.02                         # hydraulic intensity [0.005, 0.2]
 //! talus_m = 120.0                      # thermal talus angle, meters [10, 500]
+//! features_across = 2.0                # base features around the map [0.5, 8]
+//! min_feature_cells = 8                # detail floor, cells [1, 256]
 //! ```
 
 use std::fmt;
@@ -75,12 +77,22 @@ impl std::error::Error for ParamsError {
 
 /// TOML configuration of the terrain stage.
 ///
-/// Defaults describe the port profile: erosion on, one percent of the
-/// map area as water drops, erosion power `0.02`, and a talus angle of
-/// `120 m`.
+/// Defaults describe the calibrated profile: one and a half base
+/// features across the map (a dominant continent at every resolution),
+/// an eight-cell detail floor, erosion on, one percent of the map area
+/// as water drops, erosion power `0.02`, and a talus angle of `120 m`.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TerrainConfig {
+    /// Base features spanning the map circumference: the map-space
+    /// normalization keeps this count independent of the grid
+    /// resolution.
+    #[serde(default = "default_features_across")]
+    pub features_across: f64,
+    /// The finest feature wavelength the octaves may produce, in cells:
+    /// the detail floor against coastline speckle.
+    #[serde(default = "default_min_feature_cells")]
+    pub min_feature_cells: u32,
     /// Whether the thermal and hydraulic erosion passes run.
     #[serde(default = "default_erosion_enabled")]
     pub erosion_enabled: bool,
@@ -94,6 +106,14 @@ pub struct TerrainConfig {
     /// Thermal talus angle, in meters.
     #[serde(default = "default_talus")]
     pub talus_m: f64,
+}
+
+fn default_features_across() -> f64 {
+    1.5
+}
+
+fn default_min_feature_cells() -> u32 {
+    8
 }
 
 fn default_erosion_enabled() -> bool {
@@ -115,6 +135,8 @@ fn default_talus() -> f64 {
 impl Default for TerrainConfig {
     fn default() -> Self {
         Self {
+            features_across: default_features_across(),
+            min_feature_cells: default_min_feature_cells(),
             erosion_enabled: default_erosion_enabled(),
             droplets_per_hundred_cells: default_droplets(),
             power: default_power(),
@@ -144,7 +166,17 @@ impl TerrainConfig {
         } else {
             None
         };
-        Ok(TerrainParams { erosion })
+        if !(1..=256).contains(&self.min_feature_cells) {
+            return Err(ParamsError::OutOfDomain {
+                field: "min_feature_cells",
+                value: f64::from(self.min_feature_cells),
+            });
+        }
+        Ok(TerrainParams {
+            erosion,
+            features_across: centi("features_across", self.features_across, 0.5..=8.0)?,
+            min_feature_cells: self.min_feature_cells,
+        })
     }
 }
 
@@ -191,6 +223,30 @@ mod tests {
         assert_eq!(erosion.droplets_per_hundred_cells, CentiScalar(10_000));
         assert_eq!(erosion.power, CentiScalar(2));
         assert_eq!(erosion.talus, HeightM(120));
+        assert_eq!(params.features_across, CentiScalar(150), "1.5 features");
+        assert_eq!(params.min_feature_cells, 8);
+    }
+
+    #[test]
+    fn rejects_out_of_domain_map_space_fields() {
+        assert!(matches!(
+            TerrainConfig {
+                features_across: 0.1,
+                ..TerrainConfig::default()
+            }
+            .to_params(),
+            Err(ParamsError::OutOfDomain {
+                field: "features_across",
+                ..
+            })
+        ));
+        assert!(matches!(
+            from_toml_str("min_feature_cells = 0\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "min_feature_cells",
+                ..
+            })
+        ));
     }
 
     #[test]

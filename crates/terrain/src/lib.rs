@@ -61,7 +61,7 @@
 //!
 //!     let land = world.grid.cells.iter().filter(|cell| !cell.is_water).count();
 //!     assert!(land > 0, "the targeted land ratio keeps land on the map");
-//!     assert_eq!(world.params.params_version, 2);
+//!     assert_eq!(world.params.params_version, 4);
 //!     Ok(())
 //! }
 //! ```
@@ -87,12 +87,16 @@ pub const STREAM_ISLANDS: &str = "terrain.islands";
 /// Stream name of the hydraulic erosion drops.
 pub const STREAM_EROSION: &str = "terrain.erosion";
 
-/// Base noise frequency (mapgen port value for continent-scale forms).
-const BASE_FREQUENCY: f32 = 0.005;
-/// fBm octaves (mapgen port value of the default profile).
-const OCTAVES: i32 = 5;
-/// Island noise frequency (mapgen port value).
-const ISLAND_FREQUENCY: f32 = 0.015;
+/// The island noise spans this multiple of the base feature count
+/// across the map (the mapgen port ratio `0.015 / 0.005`).
+const ISLAND_FREQUENCY_RATIO: f32 = 3.0;
+/// The octave budget of the fBm stack: high-resolution maps spend it on
+/// progressively finer detail down to the configured detail floor.
+const MAX_OCTAVES: i32 = 8;
+/// The detail floor default of [`TerrainConfig`]:
+/// features below this wavelength in cells would read as speckle at
+/// any resolution (the mapgen port's finest octave).
+pub const DEFAULT_MIN_FEATURE_CELLS: u32 = 8;
 /// Island lift strength (mapgen `island_density` mid value).
 const ISLAND_DENSITY: f64 = 0.5;
 /// Smoothing radius of the two-pass box blur.
@@ -171,7 +175,16 @@ pub fn generate(
     }
 
     // --- 1. Base fBm noise on the cylinder ---
-    let noise = seeded_noise(streams, STREAM_HEIGHTMAP, BASE_FREQUENCY, OCTAVES);
+    //
+    // The cylinder already normalizes the x axis; the frequency does
+    // the same for the feature count: exactly `features_across` base
+    // features span the circumference at every grid resolution, so the
+    // world's macro structure does not depend on the map size.
+    let features = params.features_across.to_value() as f32;
+    let frequency = features / width as f32;
+    let base_wavelength = width as f32 / features;
+    let octaves = effective_octaves(MAX_OCTAVES, base_wavelength, params.min_feature_cells);
+    let noise = seeded_noise(streams, STREAM_HEIGHTMAP, frequency, octaves);
     let mut heights: Vec<f64> = Vec::with_capacity(cell_count);
     for y in 0..height as usize {
         let y_sample = y as f32 + 0.5;
@@ -187,7 +200,12 @@ pub fn generate(
     }
 
     // --- 2. Island effect: lift the lowlands with a second noise ---
-    let islands = seeded_noise(streams, STREAM_ISLANDS, ISLAND_FREQUENCY, 1);
+    let islands = seeded_noise(
+        streams,
+        STREAM_ISLANDS,
+        frequency * ISLAND_FREQUENCY_RATIO,
+        1,
+    );
     for (index, height) in heights.iter_mut().enumerate() {
         let y = index / row;
         let sample = normalized(noise_sample(
@@ -257,11 +275,12 @@ pub fn generate(
     }
 
     // The terrain block is installed without clobbering the climate
-    // block; the params version tracks the terrain block (2).
+    // and hydrology blocks; the params version tracks the terrain
+    // layout (4, the map-space fields).
     let climate = world.params.climate.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {
-        params_version: if hydrology.is_some() { 3 } else { 2 },
+        params_version: 4,
         seed: world.params.seed,
         climate,
         terrain: Some(params.clone()),
@@ -290,6 +309,20 @@ fn seeded_noise(
 
 fn cylinder_radius(width: u32) -> f32 {
     (f64::from(width) / std::f64::consts::TAU) as f32
+}
+
+/// The octave count the detail floor allows: the fBm stack stops before
+/// its wavelengths drop below `min_feature_cells`, so features smaller
+/// than the floor never exist — at any grid resolution. High-resolution
+/// maps spend the budget on finer detail; small ones simply use fewer
+/// octaves.
+fn effective_octaves(max_octaves: i32, base_wavelength_cells: f32, min_feature_cells: u32) -> i32 {
+    if min_feature_cells == 0 || base_wavelength_cells <= 0.0 {
+        return max_octaves.max(1);
+    }
+    let ratio = base_wavelength_cells / min_feature_cells as f32;
+    let affordable = 1.0 + ratio.log2();
+    affordable.floor().max(1.0).min(max_octaves.max(1) as f32) as i32
 }
 
 /// Samples the 3D noise at a cell center on the x-seamless cylinder.
@@ -456,5 +489,28 @@ fn apply_land_ratio_target(heights: &mut [f64], target_land_ratio: f64) {
     }
     for value in &mut heights[..] {
         *value = (*value + best_offset).clamp(0.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn octave_budget_respects_the_detail_floor() {
+        // A 2048-wide map at 2.0 features: base wavelength 1024 cells
+        // affords detail down to the 8-cell floor and the budget caps.
+        assert_eq!(effective_octaves(8, 1024.0, 8), 8);
+        // A 200-wide map: 50-cell base wavelength affords ~3.6 -> 3.
+        assert_eq!(effective_octaves(8, 50.0, 8), 3);
+        // A fixture-sized map affords two octaves (wavelengths 24, 12).
+        assert_eq!(effective_octaves(8, 24.0, 8), 2);
+    }
+
+    #[test]
+    fn octave_budget_stays_within_the_maximum() {
+        assert_eq!(effective_octaves(5, 4096.0, 1), 5);
+        assert_eq!(effective_octaves(5, 4096.0, 0), 5, "degenerate floor");
+        assert_eq!(effective_octaves(5, 0.0, 8), 5, "degenerate wavelength");
     }
 }

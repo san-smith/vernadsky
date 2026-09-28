@@ -35,6 +35,7 @@ pub fn build_fixture_world(
         FIXTURE_HEIGHT,
         FIXTURE_LAND_COUNT,
         FIXTURE_WATER_COUNT,
+        None,
         climate,
         None,
     )
@@ -47,19 +48,26 @@ pub fn build_fixture_world(
 ///
 /// This mirrors the current generation pipeline; the resulting world is
 /// the same one the export files carry.
+// CLI/world-building plumbing: the arguments mirror the stage
+// parameters of the current pipeline one to one.
+#[allow(clippy::too_many_arguments)]
 pub fn build_world(
     seed: u64,
     width: u32,
     height: u32,
     land_count: usize,
     water_count: usize,
+    terrain: Option<&vernadsky_core::TerrainParams>,
     climate: Option<&ClimateParams>,
     hydrology: Option<&vernadsky_core::HydrologyParams>,
 ) -> anyhow::Result<GeographicWorld> {
     let mut world = vernadsky_core::skeleton_world(width, height, seed);
-    let terrain_params = vernadsky_terrain::TerrainConfig::default()
-        .to_params()
-        .context("default terrain config")?;
+    let terrain_params = match terrain {
+        Some(params) => params.clone(),
+        None => vernadsky_terrain::TerrainConfig::default()
+            .to_params()
+            .context("default terrain config")?,
+    };
     vernadsky_terrain::generate(&mut world, &terrain_params, &RngStreams::new(seed))
         .context("terrain stage failed")?;
     if let Some(params) = climate {
@@ -91,4 +99,8 @@ pub fn climate_params_from_toml(source: &str) -> anyhow::Result<ClimateParams> {
 /// Parses hydrology parameters from a TOML document.
 pub fn hydrology_params_from_toml(source: &str) -> anyhow::Result<vernadsky_core::HydrologyParams> {
     vernadsky_hydrology::params::from_toml_str(source).context("invalid hydrology config")
+}
+
+pub fn terrain_params_from_toml(source: &str) -> anyhow::Result<vernadsky_core::TerrainParams> {
+    vernadsky_terrain::from_toml_str(source).context("invalid terrain config")
 }

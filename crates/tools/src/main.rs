@@ -12,7 +12,9 @@ use clap::{Parser, Subcommand};
 use image::{ImageBuffer, Rgb};
 
 use vernadsky_tools::render::{Layer, Raster, rasterize, zoom};
-use vernadsky_tools::{build_world, climate_params_from_toml, hydrology_params_from_toml};
+use vernadsky_tools::{
+    build_world, climate_params_from_toml, hydrology_params_from_toml, terrain_params_from_toml,
+};
 
 /// How the world under rendering is produced.
 #[derive(Clone, Debug)]
@@ -29,6 +31,7 @@ enum Source {
         no_climate: bool,
         config: Option<PathBuf>,
         hydrology_config: Option<PathBuf>,
+        terrain_config: Option<PathBuf>,
     },
 }
 
@@ -76,6 +79,9 @@ enum Command {
         /// TOML configuration of the hydrology stage (with --seed).
         #[arg(long)]
         hydrology_config: Option<PathBuf>,
+        /// TOML configuration of the terrain stage (with --seed).
+        #[arg(long)]
+        terrain_config: Option<PathBuf>,
         /// Nearest-neighbor upscale factor for readability.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=16))]
         zoom: u32,
@@ -108,6 +114,10 @@ enum Command {
         /// default configuration applies.
         #[arg(long)]
         hydrology_config: Option<PathBuf>,
+        /// TOML configuration of the terrain stage; without it the
+        /// default configuration applies.
+        #[arg(long)]
+        terrain_config: Option<PathBuf>,
     },
     /// Validate a canonical export file and print a summary.
     Validate {
@@ -130,6 +140,7 @@ fn main() -> anyhow::Result<()> {
             no_climate,
             config,
             hydrology_config,
+            terrain_config,
             zoom: factor,
         } => {
             let source = match (input, seed) {
@@ -143,6 +154,7 @@ fn main() -> anyhow::Result<()> {
                     no_climate,
                     config,
                     hydrology_config,
+                    terrain_config,
                 },
                 (None, None) => unreachable!("clap enforces seed or input"),
             };
@@ -158,6 +170,7 @@ fn main() -> anyhow::Result<()> {
             out,
             config,
             hydrology_config,
+            terrain_config,
         } => cmd_dump(
             seed,
             width,
@@ -165,6 +178,7 @@ fn main() -> anyhow::Result<()> {
             land_count,
             water_count,
             &out,
+            terrain_config.as_deref(),
             config.as_deref(),
             hydrology_config.as_deref(),
         ),
@@ -188,6 +202,7 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
             no_climate,
             config,
             hydrology_config,
+            terrain_config,
         } => {
             let climate = if *no_climate {
                 None
@@ -213,12 +228,22 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
                 }
                 None => None,
             };
+            let terrain = match terrain_config {
+                Some(path) => {
+                    let source = std::fs::read_to_string(path).with_context(|| {
+                        format!("cannot read terrain config {}", path.display())
+                    })?;
+                    Some(terrain_params_from_toml(&source)?)
+                }
+                None => None,
+            };
             build_world(
                 *seed,
                 *width,
                 *grid_height,
                 *land_count,
                 *water_count,
+                terrain.as_ref(),
                 climate.as_ref(),
                 hydrology.as_ref(),
             )
@@ -255,6 +280,7 @@ fn cmd_dump(
     land_count: usize,
     water_count: usize,
     out: &std::path::Path,
+    terrain_config: Option<&std::path::Path>,
     config: Option<&std::path::Path>,
     hydrology_config: Option<&std::path::Path>,
 ) -> anyhow::Result<()> {
@@ -279,12 +305,21 @@ fn cmd_dump(
         }
         None => None,
     };
+    let terrain = match terrain_config {
+        Some(path) => {
+            let source = std::fs::read_to_string(path)
+                .with_context(|| format!("cannot read terrain config {}", path.display()))?;
+            Some(terrain_params_from_toml(&source)?)
+        }
+        None => None,
+    };
     let world = build_world(
         seed,
         width,
         height,
         land_count,
         water_count,
+        terrain.as_ref(),
         climate.as_ref(),
         hydrology.as_ref(),
     )?;

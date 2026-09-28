@@ -33,17 +33,31 @@ pub const BIOME_REGISTRY: &str = "biomes-v1";
 /// array-index sentinel, distinct from the reserved identifier value `0`.
 pub const NO_INDEX: u32 = u32::MAX;
 
-/// Parameters of the terrain stage (params version 2).
+/// Parameters of the terrain stage (params versions 2–4).
 ///
 /// Values are stored on integer lattices so that parameters hash and
 /// round-trip canonically like every other exported quantity. The
 /// meaningful semantic domains are enforced by producers (see
 /// `vernadsky-terrain`); the lattice types only bound the storage.
+///
+/// Version history: version 2 carried `erosion` only; version 4 adds
+/// the map-space normalization fields — the base feature count and the
+/// detail floor — making the world's macro structure independent of the
+/// grid resolution.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TerrainParams {
     /// Erosion configuration; `None` when the profile runs without
     /// erosion.
     pub erosion: Option<ErosionParams>,
+    /// Base feature count spanning the map circumference, in hundredths
+    /// of a feature (conventional domain `50..=800`, i.e. `0.5..=8`
+    /// features). The map-space normalization: the count does not
+    /// depend on the grid resolution.
+    pub features_across: CentiScalar,
+    /// The finest feature wavelength the noise octaves may produce, in
+    /// cells (conventional domain `1..=256`). The detail floor: smaller
+    /// features would read as speckle at any resolution.
+    pub min_feature_cells: u32,
 }
 
 /// Hydraulic erosion tuning (the thermal pass is deterministic and

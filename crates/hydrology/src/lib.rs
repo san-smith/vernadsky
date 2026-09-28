@@ -193,7 +193,9 @@ pub fn generate(
     }
     world.water_bodies = water_bodies;
     world.params.hydrology = Some(*params);
-    world.params.params_version = 3;
+    // The version tracks the layout generation: the terrain block's
+    // map-space fields (version 4) must survive this stage.
+    world.params.params_version = if world.params.terrain.is_some() { 4 } else { 3 };
     world.rivers = river_paths
         .into_iter()
         .map(|path| RiverRecord {
