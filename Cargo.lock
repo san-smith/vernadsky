@@ -541,6 +541,8 @@ dependencies = [
 name = "vernadsky-hydrology"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "toml",
  "vernadsky-biome",
  "vernadsky-climate",
  "vernadsky-core",

@@ -74,9 +74,9 @@ pub struct ErosionParams {
 /// diagnostic.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GenerationParams {
-    /// Version of the parameters structure itself: `2` when the terrain
-    /// block is present, `1` when only the climate block is, `0` for the
-    /// bare seed.
+    /// Version of the parameters structure itself: `3` when the
+    /// hydrology block is present, `2` when the terrain block is, `1`
+    /// when only the climate block is, `0` for the bare seed.
     pub params_version: u32,
     /// Master seed of the generation. Stored from the start; consumed by
     /// the seeded stages as they come online.
@@ -85,6 +85,8 @@ pub struct GenerationParams {
     pub climate: Option<ClimateParams>,
     /// Parameters of the terrain stage; present from params version 2.
     pub terrain: Option<TerrainParams>,
+    /// Parameters of the hydrology stage; present from params version 3.
+    pub hydrology: Option<HydrologyParams>,
 }
 
 /// Parameters of the climate stage (params version 1).
@@ -107,6 +109,36 @@ pub struct ClimateParams {
     /// Baseline moisture offset of the humidity field, in hundredths of
     /// the normalized moisture unit (conventional domain `-40..=40`).
     pub humidity_offset: CentiScalar,
+}
+
+/// Parameters of the hydrology stage (params version 3).
+///
+/// Values are stored on integer lattices so that parameters hash and
+/// round-trip canonically like every other exported quantity. The
+/// meaningful semantic domains are enforced by producers (see
+/// `vernadsky-hydrology`); the lattice types only bound the storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HydrologyParams {
+    /// The drainage threshold of a river as a share of the land cells,
+    /// in hundredths of a percent (conventional domain `1..=1000`, i.e.
+    /// `0.01%..10%`). A land cell carries a river when its accumulated
+    /// flow reaches the maximum of the algorithm's absolute floor and
+    /// this share of the world's land cells — the share keeps the river
+    /// network consistent across grid resolutions, the floor keeps tiny
+    /// worlds from dissolving it.
+    pub river_land_share: CentiScalar,
+}
+
+impl Default for HydrologyParams {
+    /// The calibrated default: `0.12%` of the land cells — the share
+    /// that keeps the visually validated river network of the
+    /// `200×100` reference grid across resolutions (see the hydrology
+    /// stage docs).
+    fn default() -> Self {
+        Self {
+            river_land_share: CentiScalar(12),
+        }
+    }
 }
 
 /// Grid-cell adjacency convention. The convention is part of the contract:

@@ -243,11 +243,19 @@ pub fn generate(
     // block: stages compose, and the params version tracks the present
     // blocks (2 when terrain ran first, 1 otherwise).
     let terrain = world.params.terrain.clone();
+    let hydrology = world.params.hydrology;
     world.params = GenerationParams {
-        params_version: if terrain.is_some() { 2 } else { 1 },
+        params_version: if hydrology.is_some() {
+            3
+        } else if terrain.is_some() {
+            2
+        } else {
+            1
+        },
         seed: world.params.seed,
         climate: Some(params.clone()),
         terrain,
+        hydrology,
     };
     world.climate = ClimateSection {
         temperature: Some(temperature),

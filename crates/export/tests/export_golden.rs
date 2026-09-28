@@ -32,11 +32,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// manifest seed, on the reference platform (Linux x86_64, pinned
 /// toolchain), with the default stage configurations.
 const MANIFEST_HASHES: [u64; 5] = [
-    0x853b_eb3a_d4d6_b082,
-    0xc2ba_3f72_9bf8_8efd,
-    0xa221_985e_8816_7e86,
-    0x0a63_99bf_4d29_9e12,
-    0xc03a_b8fb_3270_d365,
+    0xa44a_8b37_764e_efd7,
+    0x77b9_f172_9727_0568,
+    0xb82b_0cc3_47f2_d1af,
+    0xc060_3605_1d7d_31cf,
+    0x31a8_6ab9_5874_0adc,
 ];
 
 /// Fixture grid and partition sizes of the golden runs.
@@ -59,7 +59,8 @@ fn enriched_world(seed: u64) -> GeographicWorld {
     climate(&mut world, &climate_params, &RngStreams::new(seed))
         .expect("the climate stage succeeds");
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
-    hydrology(&mut world).expect("the hydrology stage succeeds");
+    hydrology(&mut world, &vernadsky_core::HydrologyParams::default())
+        .expect("the hydrology stage succeeds");
     partition(&mut world, GOLDEN_LAND_COUNT, GOLDEN_WATER_COUNT).expect("the partition succeeds");
     generate_regions(&mut world).expect("the regions succeed");
     enrich(&mut world).expect("the enrichment succeeds");

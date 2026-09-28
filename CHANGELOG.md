@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for world content hashes** (managed drift): the river drainage threshold is resolution-independent — per land component, `max(8.0, river_land_share × component land cells)` instead of a fixed 8 cells for the whole world — so every landmass carries a river network proportional to its own size, and the network stays thin and branching at every grid resolution instead of thickening into blobs as the grid grows. The calibrated default share is `0.12%`. Full-pipeline golden manifests (hydrology, terrain, territory, export) were regenerated through their documented procedures; the synthetic core fixtures are untouched (the floor governs tiny worlds).
+
+### Added
+
+- `HydrologyParams` in the export contract (params version 3, block-presence flags bit 2; the reader still accepts versions 0–2 and rejects unknown ones) carrying the river land share, with `HydrologyConfig` TOML loading in the hydrology crate and a `--hydrology-config` flag in the tools' `render` and `dump` subcommands. A committed params-v2 export fixture pins legacy readability.
+
 ### Added
 
 - Export format v1 in `vernadsky-core`: the header now carries the biome registry version (`biomes-v1`) alongside the schema, identifier strategy, and lattice registry versions, making the file self-describing for biome interpretation. The reader accepts schema v0 and v1 files (the v0 layout stays readable) and rejects unknown schema, registry, and params versions; a checked-in v0 fixture pins legacy readability. The tools' `validate` subcommand prints a file summary with exit codes, and `dump` takes grid dimensions and territory counts with pipeline timing.

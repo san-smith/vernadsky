@@ -59,7 +59,7 @@ pub use quant::{CentiScalar, LATTICE_REGISTRY_VERSION, QuantError};
 pub use rng::{RNG_STRATEGY, RngStreams};
 pub use schema::{
     Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity, ErosionParams,
-    GenerationParams, GeographicWorld, GridSection, NO_INDEX, RegionRecord, RiverRecord,
-    SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    GenerationParams, GeographicWorld, GridSection, HydrologyParams, NO_INDEX, RegionRecord,
+    RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 pub use synthetic::{minimal_world, seeded_world, skeleton_world};

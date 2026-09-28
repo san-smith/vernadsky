@@ -34,21 +34,21 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// manifest seed, on the reference platform (Linux x86_64, pinned
 /// toolchain), with the default stage configurations.
 const MANIFEST_HASHES_ERODED: [u64; 5] = [
-    0x99d3_8c34_e61f_048d,
-    0x1b86_a4ce_8c64_9c59,
-    0x71dc_d5e5_6713_4c3b,
-    0x5bbc_38de_7b96_f493,
-    0xc262_1a59_6021_d450,
+    0xfc1c_e22b_69d9_f8a4,
+    0x079b_3b44_831f_e534,
+    0x7623_0051_457a_9fbe,
+    0x1e58_7d3f_55f8_dba2,
+    0xa83e_ab46_84d4_3ce1,
 ];
 
 /// Content hashes of the no-erosion profile: the same pipeline with
 /// `erosion_enabled = false`.
 const MANIFEST_HASHES_PLAIN: [u64; 5] = [
-    0x7637_1e0b_2c32_d71f,
-    0xa908_3b66_37ea_6a10,
-    0x757e_b8a7_c997_ce07,
-    0x371d_92bf_303a_3b3c,
-    0x4243_c7fe_ff31_779b,
+    0xd7b7_ce2e_c62c_e6f2,
+    0xbe30_f702_a090_060d,
+    0x87c1_1eec_8f8d_9362,
+    0xa407_006b_16a6_5029,
+    0x6b0e_0e8e_3164_27ce,
 ];
 
 /// Fixture grid of the golden runs (the fixture world dimensions).
@@ -69,7 +69,8 @@ fn real_pipeline_world(seed: u64, erosion: bool) -> GeographicWorld {
     climate(&mut world, &climate_params, &RngStreams::new(seed))
         .expect("the climate stage succeeds");
     biomes(&mut world, &RngStreams::new(seed)).expect("the biome stage succeeds");
-    hydrology(&mut world).expect("the hydrology stage succeeds");
+    hydrology(&mut world, &vernadsky_core::HydrologyParams::default())
+        .expect("the hydrology stage succeeds");
     world
 }
 
@@ -122,9 +123,10 @@ fn generation_is_deterministic() {
 fn filled_worlds_round_trip() {
     for seed in MANIFEST_SEEDS {
         let world = real_pipeline_world(seed, true);
-        assert_eq!(world.params.params_version, 2, "seed {seed:#018x}");
+        assert_eq!(world.params.params_version, 3, "seed {seed:#018x}");
         assert!(world.params.terrain.is_some());
         assert!(world.params.climate.is_some());
+        assert!(world.params.hydrology.is_some());
         assert_eq!(
             GeographicWorld::from_bytes(&world.to_bytes()).expect("valid export"),
             world

@@ -60,32 +60,57 @@ impl Component {
 /// order (row-major scan, BFS with the x seam wrapped and the poles
 /// disconnected).
 pub(crate) fn components(cells: &[CellRecord], width: u32, height: u32) -> Vec<Component> {
+    surface_components(cells, width, height, true)
+        .into_iter()
+        .map(|cells| {
+            let mut component = Component {
+                cells,
+                sum_x: 0,
+                sum_y: 0,
+                touches_pole: false,
+            };
+            let w = width as usize;
+            let h = height as usize;
+            for &index in &component.cells {
+                let y = index / w;
+                let x = index % w;
+                component.sum_x += x as i64;
+                component.sum_y += y as i64;
+                if y == 0 || y == h - 1 {
+                    component.touches_pole = true;
+                }
+            }
+            component
+        })
+        .collect()
+}
+
+/// Flood-fills the connected components of one surface: the water flags
+/// when `over_water`, the land flags otherwise. Components come in scan
+/// order of their first cell; member cells in BFS order. The map is
+/// seamless along x; the poles are disconnected.
+pub(crate) fn surface_components(
+    cells: &[CellRecord],
+    width: u32,
+    height: u32,
+    over_water: bool,
+) -> Vec<Vec<usize>> {
     let w = width as usize;
     let h = height as usize;
     let mut visited = vec![false; cells.len()];
     let mut components = Vec::new();
     for start in 0..cells.len() {
-        if !cells[start].is_water || visited[start] {
+        if cells[start].is_water != over_water || visited[start] {
             continue;
         }
-        let mut component = Component {
-            cells: Vec::new(),
-            sum_x: 0,
-            sum_y: 0,
-            touches_pole: false,
-        };
+        let mut component = Vec::new();
         let mut queue = VecDeque::new();
         visited[start] = true;
         queue.push_back(start);
         while let Some(index) = queue.pop_front() {
             let y = index / w;
             let x = index % w;
-            component.cells.push(index);
-            component.sum_x += x as i64;
-            component.sum_y += y as i64;
-            if y == 0 || y == h - 1 {
-                component.touches_pole = true;
-            }
+            component.push(index);
             for &(dy, dx) in &NEIGHBORS {
                 let ny = y as i64 + dy;
                 if ny < 0 || ny >= h as i64 {
@@ -93,7 +118,7 @@ pub(crate) fn components(cells: &[CellRecord], width: u32, height: u32) -> Vec<C
                 }
                 let nx = (x as i64 + dx).rem_euclid(w as i64) as usize;
                 let neighbor = ny as usize * w + nx;
-                if cells[neighbor].is_water && !visited[neighbor] {
+                if cells[neighbor].is_water == over_water && !visited[neighbor] {
                     visited[neighbor] = true;
                     queue.push_back(neighbor);
                 }
