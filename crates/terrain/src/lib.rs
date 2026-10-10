@@ -16,7 +16,8 @@
 //!    stream, remapped to `[0, 1]`.
 //! 2. **Island effect**: a second noise (stream [`STREAM_ISLANDS`])
 //!    lifts low-lying cells, scattering islands across the oceans.
-//! 3. **Smoothing**: two-pass box blur with clamped edges.
+//! 3. **Smoothing**: two-pass box blur, seamless along x (the window
+//!    wraps around the cylinder) and clamped at the poles.
 //! 4. **Power correction**: `h ← h^power` with the port exponent `1.0`.
 //! 5. **Normalization** to `[0, 1]` by min/max.
 //! 6. **Thermal erosion** (when the erosion profile is on): talus-angle
@@ -336,19 +337,32 @@ fn normalized(sample: f32) -> f64 {
     (f64::from(sample) + 1.0) / 2.0
 }
 
-/// Two-pass box blur with clamped edges (the pass order — horizontal,
-/// then vertical — is part of the determinism contract).
+/// Two-pass box blur (the pass order — horizontal, then vertical — and
+/// the summation order are part of the determinism contract). The
+/// horizontal window wraps around the x seam, like the noise it smooths:
+/// a clamped window averaged the two map edges over different
+/// neighbourhoods and cut the relief at the seam. A row narrower than the
+/// window averages the whole row once. The vertical window clamps at the
+/// poles, which do not wrap.
 fn box_smooth(values: &mut [f64], width: usize, height: usize, radius: usize) {
     let mut scratch = vec![0.0f64; values.len()];
+    let whole_row = 2 * radius + 1 >= width;
     for y in 0..height {
+        let row = &values[y * width..(y + 1) * width];
         for x in 0..width {
-            let lo = x.saturating_sub(radius);
-            let hi = (x + radius).min(width - 1);
             let mut sum = 0.0;
-            for k in lo..=hi {
-                sum += values[y * width + k];
-            }
-            scratch[y * width + x] = sum / ((hi - lo + 1) as f64);
+            let count = if whole_row {
+                for value in row {
+                    sum += value;
+                }
+                width
+            } else {
+                for k in 0..=2 * radius {
+                    sum += row[(x + width + k - radius) % width];
+                }
+                2 * radius + 1
+            };
+            scratch[y * width + x] = sum / (count as f64);
         }
     }
     for y in 0..height {
@@ -495,6 +509,31 @@ fn apply_land_ratio_target(heights: &mut [f64], target_land_ratio: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn box_smoothing_wraps_the_x_seam_and_clamps_the_poles() {
+        // One bright column at the western edge: the wrapped window spreads
+        // it onto the eastern edge as much as onto its eastern neighbour,
+        // so the two map edges agree across the seam.
+        let (width, height) = (12, 6);
+        let mut values = vec![0.0; width * height];
+        for y in 0..height {
+            values[y * width] = 1.0;
+        }
+        box_smooth(&mut values, width, height, 2);
+        for y in 0..height {
+            let row = &values[y * width..(y + 1) * width];
+            assert_eq!(row[width - 1], row[1], "row {y}");
+            assert_eq!(row[width - 2], row[2], "row {y}");
+            assert_eq!(row[width / 2], 0.0, "row {y}");
+            let total: f64 = row.iter().sum();
+            assert!((total - 1.0).abs() < 1e-12, "the blur keeps the row's mass");
+        }
+        // A row narrower than the window averages the whole row.
+        let mut narrow = vec![1.0, 0.0, 0.0, 1.0];
+        box_smooth(&mut narrow, 4, 1, 2);
+        assert!(narrow.iter().all(|v| (*v - 0.5).abs() < 1e-12));
+    }
 
     #[test]
     fn octave_budget_respects_the_detail_floor() {
