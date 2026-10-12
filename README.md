@@ -52,8 +52,12 @@ The terrain stage exposes a recipe surface through which a consumer shapes world
 | `features_across`     | `1.5`   | 0.5–8      | Base features around the map: few give one landmass, many give scattered continents; resolution-independent.     |
 | `island_density`      | `0.5`   | 0–3        | Island lift over the lowlands: subtle up to 1, island chains out of the deep ocean around 2, broken continents toward 3. |
 | `land_hypsometry`     | `1.0`   | 1–4        | Exponent of the land elevation curve: 1 spreads the land evenly up to 6000 m, about 3 crowds it into lowlands under a few ranges (Earth's hypsometric curve); the coast stays. |
+| `warp_strength`       | `0.0`   | 0–0.3      | Domain warp reach, in map widths: bends the coastlines into peninsulas, gulfs, and island chains around solid cores instead of rounded blobs (about 0.06 reads as natural; strong reaches smear the land along the flow). |
+| `warp_features`       | `6.0`   | 1–12       | Features of the warp field around the map: few bend whole continents, many fray the coasts. |
+| `ridge_strength`      | `0.0`   | 0–1        | Height of the ridged ranges: long, narrow mountain chains over the land and the shallows. |
+| `ridge_features`      | `5.0`   | 1–12       | Features of the ranges around the map. |
 
-The climate stage (`temperature_offset_c`, `polar_amplification`, `humidity_offset`) moves temperature and moisture, and with them the biomes and the natural potential. Water territories can follow a target area (`WaterSplit::CellsPerTerritory` in `vernadsky-territory`, `build_world_with` in `vernadsky-tools`), which keeps them commensurate with the land territories at any land share and resolution; `land_components` reports the land structure for consumers that judge connectivity by their own thresholds.
+The climate stage (`temperature_offset_c`, `polar_amplification`, `humidity_offset`) moves temperature and moisture, and with them the biomes and the natural potential. Water territories can follow a target area (`WaterSplit::CellsPerTerritory` in `vernadsky-territory`, `build_world_with` in `vernadsky-tools`), which keeps them commensurate with the land territories at any land share and resolution and spreads their seeds evenly over the sea (Z-order sampling relaxed toward the centroids), so the zones come out compact and of even size; `land_components` reports the land structure for consumers that judge connectivity by their own thresholds.
 
 Stage changes are inspected at release resolutions: the structure test runs the pipeline at 512² and 1024² over the recipe surface and prints the calibration table.
 

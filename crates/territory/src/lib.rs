@@ -78,7 +78,7 @@
 
 pub mod region;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 
 use vernadsky_core::quant::{
@@ -295,6 +295,7 @@ pub fn generate_with(
         let areas: Vec<usize> = components.iter().map(Vec::len).collect();
         let shares = apportion(&areas, water_count);
         let mut anchored: Vec<(Anchor, Vec<usize>)> = Vec::new();
+        let mut owner = vec![NO_INDEX; cell_count];
         for (component, &share) in components.iter().zip(shares.iter()) {
             anchored.extend(grow_water_component(
                 &world.grid.cells,
@@ -302,6 +303,8 @@ pub fn generate_with(
                 share,
                 row,
                 height as usize,
+                matches!(water, WaterSplit::CellsPerTerritory(_)),
+                &mut owner,
             ));
         }
         anchored.sort_by_key(|(anchor, _)| (anchor.y, anchor.x));
@@ -605,44 +608,42 @@ fn apportion(areas: &[usize], total: usize) -> Vec<usize> {
     shares
 }
 
-/// Grows one water component into `share` territories: even seed
-/// sampling over the component's canonical cell order, then multi-source
-/// BFS within the component. Returns the territories with their anchors
-/// and members. The component is connected, so the BFS covers it fully —
-/// the membership assertion documents that guarantee.
+/// Grows one water component into `share` territories. Returns the
+/// territories with their anchors and members. The component is
+/// connected, so the growth covers it fully — the membership assertion
+/// documents that guarantee.
+///
+/// The count split keeps its seeding: seeds sampled evenly over the
+/// component's canonical cell order (raster order). The area split
+/// spreads them over the plane instead — sampled evenly along the
+/// Z-order curve, which keeps neighbouring cells neighbouring — and
+/// relaxes them [`LLOYD_ITERATIONS`] times, each seed moving to the cell
+/// nearest its territory's centroid: territories of even size and
+/// compact shape, without the raster order's rows of seeds.
 fn grow_water_component(
     cells: &[CellRecord],
     component: &[usize],
     share: usize,
     row: usize,
     height: usize,
+    spread: bool,
+    owner: &mut [u32],
 ) -> Vec<(Anchor, Vec<usize>)> {
-    let seeds = even_sample(component, share);
-    let mut owner: HashMap<usize, usize> = HashMap::new();
-    let mut members: Vec<Vec<usize>> = vec![Vec::new(); share];
-    let mut queue = VecDeque::new();
-    for (territory, &cell) in seeds.iter().enumerate() {
-        owner.insert(cell, territory);
-        members[territory].push(cell);
-        queue.push_back((cell, territory));
-    }
-    while let Some((cell, territory)) = queue.pop_front() {
-        let y = (cell / row) as i64;
-        let x = (cell % row) as i64;
-        for &(dy, dx) in &NEIGHBORS {
-            let ny = y + dy;
-            if ny < 0 || ny >= height as i64 {
-                continue;
-            }
-            let nx = (x + dx).rem_euclid(row as i64) as usize;
-            let neighbor = ny as usize * row + nx;
-            if cells[neighbor].is_water && !owner.contains_key(&neighbor) {
-                owner.insert(neighbor, territory);
-                members[territory].push(neighbor);
-                queue.push_back((neighbor, territory));
-            }
+    let members = if spread {
+        let mut ordered = component.to_vec();
+        ordered.sort_by_key(|&cell| (z_order(cell % row, cell / row), cell));
+        let mut members = grow_from(cells, &even_sample(&ordered, share), row, height, owner);
+        for _ in 0..LLOYD_ITERATIONS {
+            let seeds: Vec<usize> = members
+                .iter()
+                .map(|territory| nearest_to_centroid(territory, row))
+                .collect();
+            members = grow_from(cells, &seeds, row, height, owner);
         }
-    }
+        members
+    } else {
+        grow_from(cells, &even_sample(component, share), row, height, owner)
+    };
     debug_assert_eq!(
         members.iter().map(Vec::len).sum::<usize>(),
         component.len(),
@@ -664,6 +665,92 @@ fn grow_water_component(
             )
         })
         .collect()
+}
+
+/// Relaxation passes of the area split's water seeds.
+const LLOYD_ITERATIONS: usize = 2;
+
+/// Multi-source BFS over the water from the seeds (4-neighbours, the
+/// map seamless along x, the poles clamped): the members of each seed's
+/// territory, in growth order.
+///
+/// `owner` is a scratch of the grid's size holding [`NO_INDEX`] in every
+/// cell; the growth marks its cells and clears them again before it
+/// returns, so one scratch serves every component and relaxation pass.
+fn grow_from(
+    cells: &[CellRecord],
+    seeds: &[usize],
+    row: usize,
+    height: usize,
+    owner: &mut [u32],
+) -> Vec<Vec<usize>> {
+    let mut members: Vec<Vec<usize>> = vec![Vec::new(); seeds.len()];
+    let mut queue = VecDeque::new();
+    for (territory, &cell) in seeds.iter().enumerate() {
+        owner[cell] = territory as u32;
+        members[territory].push(cell);
+        queue.push_back((cell, territory));
+    }
+    while let Some((cell, territory)) = queue.pop_front() {
+        let y = (cell / row) as i64;
+        let x = (cell % row) as i64;
+        for &(dy, dx) in &NEIGHBORS {
+            let ny = y + dy;
+            if ny < 0 || ny >= height as i64 {
+                continue;
+            }
+            let nx = (x + dx).rem_euclid(row as i64) as usize;
+            let neighbor = ny as usize * row + nx;
+            if cells[neighbor].is_water && owner[neighbor] == NO_INDEX {
+                owner[neighbor] = territory as u32;
+                members[territory].push(neighbor);
+                queue.push_back((neighbor, territory));
+            }
+        }
+    }
+    for &cell in members.iter().flatten() {
+        owner[cell] = NO_INDEX;
+    }
+    members
+}
+
+/// The Z-order (Morton) code of a cell: the bits of `x` and `y`
+/// interleaved.
+fn z_order(x: usize, y: usize) -> u64 {
+    let mut code = 0u64;
+    for bit in 0..32 {
+        code |= (((x >> bit) & 1) as u64) << (2 * bit);
+        code |= (((y >> bit) & 1) as u64) << (2 * bit + 1);
+    }
+    code
+}
+
+/// The member cell nearest the territory's centroid, the x seam
+/// respected (integer arithmetic; ties to the smallest index). The
+/// first member anchors the wrap: every x is taken as its shortest
+/// offset from it.
+fn nearest_to_centroid(territory: &[usize], row: usize) -> usize {
+    let width = row as i64;
+    let reference = (territory[0] % row) as i64;
+    let offset = |cell: usize| {
+        let dx = (cell % row) as i64 - reference;
+        (dx + width / 2).rem_euclid(width) - width / 2
+    };
+    let n = territory.len() as i64;
+    let mean_dx = territory.iter().map(|&cell| offset(cell)).sum::<i64>() / n;
+    let mean_y = territory
+        .iter()
+        .map(|&cell| (cell / row) as i64)
+        .sum::<i64>()
+        / n;
+    *territory
+        .iter()
+        .min_by_key(|&&cell| {
+            let dx = offset(cell) - mean_dx;
+            let dy = (cell / row) as i64 - mean_y;
+            (dx * dx + dy * dy, cell)
+        })
+        .expect("a territory has at least one member")
 }
 
 /// Even sampling of `count` entries from a canonically ordered list:

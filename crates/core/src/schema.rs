@@ -45,10 +45,11 @@ pub const NO_INDEX: u32 = u32::MAX;
 /// detail floor — making the world's macro structure independent of the
 /// grid resolution; version 5 adds the recipe surface — the targeted
 /// land share and the island density, constants of the stage before;
-/// version 6 adds the land hypsometry — the curve of the land
-/// elevations. Readers of the older layouts synthesize the former
-/// constants (`0.30` land, `0.50` islands, a linear `1.00` curve),
-/// which reproduce those worlds.
+/// version 6 adds the land's shape — the curve of the land elevations,
+/// the domain warp of the relief, and the ridged ranges. Readers of the
+/// older layouts synthesize the former constants (`0.30` land, `0.50`
+/// islands, a linear curve, no warp, no ridges), which reproduce those
+/// worlds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TerrainParams {
     /// Erosion configuration; `None` when the profile runs without
@@ -80,6 +81,24 @@ pub struct TerrainParams {
     /// lowlands under a few high ranges, the shape of Earth's
     /// hypsometric curve. The former constant is `100`.
     pub land_hypsometry: CentiScalar,
+    /// The reach of the domain warp, in hundredths of the map width
+    /// (conventional domain `0..=30`): the relief is sampled at
+    /// coordinates displaced by a smooth noise field, which bends the
+    /// coastlines into peninsulas, gulfs, and island chains. `0` is no
+    /// warp, the former relief.
+    pub warp_strength: CentiScalar,
+    /// The warp field's features across the map, in hundredths
+    /// (conventional domain `100..=1200`): few bend whole continents,
+    /// many fray the coasts.
+    pub warp_features: CentiScalar,
+    /// The height of the ridged ranges, in hundredths of the height
+    /// scale (conventional domain `0..=100`): a ridged noise raises
+    /// long, narrow mountain chains over the land and the shallows. `0`
+    /// is no ranges, the former relief.
+    pub ridge_strength: CentiScalar,
+    /// The ranges' features across the map, in hundredths
+    /// (conventional domain `100..=1200`).
+    pub ridge_features: CentiScalar,
 }
 
 /// The land share of the terrain layouts before params version 5, in
@@ -95,8 +114,18 @@ pub const LEGACY_ISLAND_DENSITY: CentiScalar = CentiScalar(50);
 /// synthesize it.
 pub const LEGACY_LAND_HYPSOMETRY: CentiScalar = CentiScalar(100);
 
+/// The warp and the ridges of the terrain layouts before params version
+/// 6: none (the features are kept at the defaults and unused).
+pub const LEGACY_WARP_STRENGTH: CentiScalar = CentiScalar(0);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_WARP_FEATURES: CentiScalar = CentiScalar(600);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_RIDGE_STRENGTH: CentiScalar = CentiScalar(0);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_RIDGE_FEATURES: CentiScalar = CentiScalar(500);
+
 /// The params version the stages write: the current layout of the
-/// terrain block (version 6, the land hypsometry). A world without the
+/// terrain block (version 6, the land's shape). A world without the
 /// terrain block keeps the older, structure-derived versions.
 pub const PARAMS_VERSION: u32 = 6;
 
