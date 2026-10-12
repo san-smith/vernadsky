@@ -1,5 +1,6 @@
-//! The recipe surface of the terrain stage: the targeted land share and
-//! the island density shape the world at fixture-scale grids. The
+//! The recipe surface of the terrain stage: the targeted land share, the
+//! island density, and the land hypsometry shape the world at
+//! fixture-scale grids. The
 //! release-resolution structure test lives in `vernadsky-tools`
 //! (`tests/recipe_structure.rs`).
 
@@ -117,4 +118,45 @@ fn the_export_carries_the_recipe_surface() {
     assert_eq!(terrain.land_ratio.0, 92);
     assert_eq!(terrain.island_density.0, 0);
     assert_eq!(terrain.features_across.0, 70);
+    assert_eq!(
+        terrain.land_hypsometry.0, 100,
+        "the linear curve by default"
+    );
+}
+
+#[test]
+fn the_land_hypsometry_lowers_the_land_and_keeps_the_coast() {
+    for seed in [1, 42, 0x5EED] {
+        let world_with = |hypsometry: f64| {
+            world(
+                seed,
+                256,
+                128,
+                &TerrainConfig {
+                    land_hypsometry: hypsometry,
+                    ..TerrainConfig::default()
+                },
+            )
+        };
+        let (linear, curved) = (world_with(1.0), world_with(3.0));
+        let water = |world: &GeographicWorld| -> Vec<bool> {
+            world.grid.cells.iter().map(|cell| cell.is_water).collect()
+        };
+        assert_eq!(
+            water(&linear),
+            water(&curved),
+            "seed {seed}: the coast stays"
+        );
+        let highland = |world: &GeographicWorld| {
+            let land: Vec<_> = world.grid.cells.iter().filter(|c| !c.is_water).collect();
+            land.iter().filter(|c| c.height.0 > 1500).count() as f64 / land.len() as f64
+        };
+        let (before, after) = (highland(&linear), highland(&curved));
+        assert!(
+            after < before / 2.0,
+            "seed {seed}: land above 1500 m {before:.2} -> {after:.2}"
+        );
+        let peak = |world: &GeographicWorld| world.grid.cells.iter().map(|c| c.height.0).max();
+        assert!(peak(&curved) <= peak(&linear), "seed {seed}: no peak rises");
+    }
 }

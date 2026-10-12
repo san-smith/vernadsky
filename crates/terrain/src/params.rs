@@ -16,6 +16,7 @@
 //! min_feature_cells = 8                # detail floor, cells [1, 256]
 //! land_ratio = 0.3                     # targeted land share [0.05, 0.95]
 //! island_density = 0.5                 # island lift over the lowlands [0, 3]
+//! land_hypsometry = 1.0                # land elevation curve exponent [1, 4]
 //! ```
 //!
 //! The recipe surface — `land_ratio`, `island_density`, and
@@ -113,6 +114,11 @@ pub struct TerrainConfig {
     /// break the continents themselves.
     #[serde(default = "default_island_density")]
     pub island_density: f64,
+    /// The exponent of the land elevation curve: `1` spreads the land
+    /// evenly up to 6000 m, larger values crowd it into lowlands under
+    /// a few high ranges (Earth's hypsometric curve sits near `3`).
+    #[serde(default = "default_land_hypsometry")]
+    pub land_hypsometry: f64,
     /// Whether the thermal and hydraulic erosion passes run.
     #[serde(default = "default_erosion_enabled")]
     pub erosion_enabled: bool,
@@ -144,6 +150,10 @@ fn default_island_density() -> f64 {
     0.5
 }
 
+fn default_land_hypsometry() -> f64 {
+    1.0
+}
+
 fn default_erosion_enabled() -> bool {
     true
 }
@@ -167,6 +177,7 @@ impl Default for TerrainConfig {
             min_feature_cells: default_min_feature_cells(),
             land_ratio: default_land_ratio(),
             island_density: default_island_density(),
+            land_hypsometry: default_land_hypsometry(),
             erosion_enabled: default_erosion_enabled(),
             droplets_per_hundred_cells: default_droplets(),
             power: default_power(),
@@ -208,6 +219,7 @@ impl TerrainConfig {
             min_feature_cells: self.min_feature_cells,
             land_ratio: centi("land_ratio", self.land_ratio, 0.05..=0.95)?,
             island_density: centi("island_density", self.island_density, 0.0..=3.0)?,
+            land_hypsometry: centi("land_hypsometry", self.land_hypsometry, 1.0..=4.0)?,
         })
     }
 }
@@ -259,6 +271,10 @@ mod tests {
         assert_eq!(params.min_feature_cells, 8);
         assert_eq!(params.land_ratio, vernadsky_core::LEGACY_LAND_RATIO);
         assert_eq!(params.island_density, vernadsky_core::LEGACY_ISLAND_DENSITY);
+        assert_eq!(
+            params.land_hypsometry,
+            vernadsky_core::LEGACY_LAND_HYPSOMETRY
+        );
     }
 
     #[test]
@@ -284,6 +300,19 @@ features_across = 0.7
             from_toml_str("island_density = 3.5\n"),
             Err(ParamsError::OutOfDomain {
                 field: "island_density",
+                ..
+            })
+        ));
+        assert_eq!(
+            from_toml_str("land_hypsometry = 3.0\n")
+                .expect("valid document")
+                .land_hypsometry,
+            CentiScalar(300)
+        );
+        assert!(matches!(
+            from_toml_str("land_hypsometry = 0.5\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "land_hypsometry",
                 ..
             })
         ));

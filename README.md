@@ -51,6 +51,7 @@ The terrain stage exposes a recipe surface through which a consumer shapes world
 | `land_ratio`          | `0.3`   | 0.05–0.95  | Share of land cells: the sea level is placed to meet it (within 1.5 percentage points at any grid).              |
 | `features_across`     | `1.5`   | 0.5–8      | Base features around the map: few give one landmass, many give scattered continents; resolution-independent.     |
 | `island_density`      | `0.5`   | 0–3        | Island lift over the lowlands: subtle up to 1, island chains out of the deep ocean around 2, broken continents toward 3. |
+| `land_hypsometry`     | `1.0`   | 1–4        | Exponent of the land elevation curve: 1 spreads the land evenly up to 6000 m, about 3 crowds it into lowlands under a few ranges (Earth's hypsometric curve); the coast stays. |
 
 The climate stage (`temperature_offset_c`, `polar_amplification`, `humidity_offset`) moves temperature and moisture, and with them the biomes and the natural potential. Water territories can follow a target area (`WaterSplit::CellsPerTerritory` in `vernadsky-territory`, `build_world_with` in `vernadsky-tools`), which keeps them commensurate with the land territories at any land share and resolution; `land_components` reports the land structure for consumers that judge connectivity by their own thresholds.
 

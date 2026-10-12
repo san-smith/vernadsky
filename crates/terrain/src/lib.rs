@@ -37,6 +37,12 @@
 //!    grid and target.
 //! 9. **Physical hand-off**: `meters = (n − 0.5) · 12 000` (sea level
 //!    `0.5 ⇔ 0 m`), quantized to `HeightM`; `is_water ⇔ meters ≤ 0`.
+//!    Above the sea level the land hypsometry bends the curve:
+//!    `meters = (2(n − 0.5))^k · 6000` with the configured exponent `k`
+//!    (`1` is the linear curve), at least one meter where the linear
+//!    curve keeps the land. The curve is monotonic and fixes the sea
+//!    level, so the coastline and the water stay where they are; only
+//!    the land's elevations crowd toward the lowlands.
 //!
 //! The stage consumes randomness from exactly three named streams;
 //! coming online shifts no other stream, and identical worlds with
@@ -48,9 +54,10 @@
 //! [`ErosionParams`] in `vernadsky_core`): the port defaults are one
 //! percent of the map area as water drops, erosion power `0.02`, and a
 //! talus angle of `120 m`. It also carries the map-space feature count
-//! and detail floor and the recipe surface — the land share and the
-//! island density — through which consumers shape world types. The
-//! stage installs its parameters into the export (params version 5)
+//! and detail floor and the recipe surface — the land share, the
+//! island density, and the land hypsometry — through which consumers
+//! shape world types. The stage installs its parameters into the
+//! export (params version 6)
 //! and a TOML configuration is available through the `params` module
 //! ([`TerrainConfig`]).
 //!
@@ -69,7 +76,7 @@
 //!
 //!     let land = world.grid.cells.iter().filter(|cell| !cell.is_water).count();
 //!     assert!(land > 0, "the targeted land ratio keeps land on the map");
-//!     assert_eq!(world.params.params_version, 5);
+//!     assert_eq!(world.params.params_version, 6);
 //!     Ok(())
 //! }
 //! ```
@@ -265,10 +272,25 @@ pub fn generate(
     apply_land_ratio_target(&mut heights, params.land_ratio.to_value());
 
     // --- 9. Physical hand-off ---
+    let hypsometry = params.land_hypsometry.to_value();
     let mut cells = Vec::with_capacity(cell_count);
     for value in &heights {
-        let meters = (value.clamp(0.0, 1.0) - 0.5) * HEIGHT_SCALE_M;
-        let height = HeightM::try_from_value(meters).map_err(TerrainError::Quantization)?;
+        let above = value.clamp(0.0, 1.0) - 0.5;
+        let linear =
+            HeightM::try_from_value(above * HEIGHT_SCALE_M).map_err(TerrainError::Quantization)?;
+        // The linear curve keeps its exact arithmetic, so the worlds of
+        // the former constant reproduce byte for byte. A bent curve
+        // starts from the linear land: a cell the linear curve keeps
+        // above the sea stays at least a meter above it, so the coast
+        // never moves.
+        let height = if linear.0 > 0 && hypsometry != 1.0 {
+            let bent =
+                HeightM::try_from_value((2.0 * above).powf(hypsometry) * 0.5 * HEIGHT_SCALE_M)
+                    .map_err(TerrainError::Quantization)?;
+            HeightM(bent.0.max(1))
+        } else {
+            linear
+        };
         // The quantized lattice is the truth: the water flag follows it,
         // so the flag and the exported height never disagree.
         let is_water = height.to_value() <= 0.0;
@@ -288,7 +310,7 @@ pub fn generate(
 
     // The terrain block is installed without clobbering the climate
     // and hydrology blocks; the params version tracks the terrain
-    // layout (5, the recipe surface).
+    // layout (6, the land hypsometry).
     let climate = world.params.climate.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {

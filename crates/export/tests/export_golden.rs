@@ -32,11 +32,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// manifest seed, on the reference platform (Linux x86_64, pinned
 /// toolchain), with the default stage configurations.
 const MANIFEST_HASHES: [u64; 5] = [
-    0xabc6_9741_4492_e518,
-    0x3482_b8ac_f2c0_fdc7,
-    0x5e61_9d91_0163_05e2,
-    0xae8a_eb58_1d39_56fa,
-    0x15a1_0209_e1c2_200c,
+    0xb2e9_d607_a168_81b3,
+    0x653e_9c8d_3993_091c,
+    0x339c_b4ab_04c0_0b29,
+    0x8c8b_931a_c446_7881,
+    0x10e5_2116_a0c4_82a7,
 ];
 
 /// Fixture grid and partition sizes of the golden runs.
