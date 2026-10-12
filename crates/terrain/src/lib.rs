@@ -15,7 +15,8 @@
 //!    cylinder for x-seamlessness, seeded from the [`STREAM_HEIGHTMAP`]
 //!    stream, remapped to `[0, 1]`.
 //! 2. **Island effect**: a second noise (stream [`STREAM_ISLANDS`])
-//!    lifts low-lying cells, scattering islands across the oceans.
+//!    lifts low-lying cells by the configured island density,
+//!    scattering islands across the oceans (`0` disables the layer).
 //! 3. **Smoothing**: two-pass box blur, seamless along x (the window
 //!    wraps around the cylinder) and clamped at the poles.
 //! 4. **Power correction**: `h ← h^power` with the port exponent `1.0`.
@@ -28,8 +29,12 @@
 //!    to 30 steps with inertial speed (`speed ← speed·0.9 + Δh`),
 //!    eroding `min(speed·power, h/2)` and depositing at low speed.
 //! 8. **Land-ratio targeting**: the offset over `[0, 1]` whose land
-//!    share (cells above `0.5`) is closest to the target `0.3` — the
-//!    Earth-like convention.
+//!    share (cells above `0.5`) is closest to the configured target
+//!    (`0.3` by default). A coarse search in hundredths comes first;
+//!    when it misses the target by more than
+//!    [`LAND_RATIO_TOLERANCE`], a fine search around its best offset
+//!    takes over, so the land share lands within the tolerance on any
+//!    grid and target.
 //! 9. **Physical hand-off**: `meters = (n − 0.5) · 12 000` (sea level
 //!    `0.5 ⇔ 0 m`), quantized to `HeightM`; `is_water ⇔ meters ≤ 0`.
 //!
@@ -42,9 +47,11 @@
 //! [`TerrainParams`] carries the optional erosion profile (see
 //! [`ErosionParams`] in `vernadsky_core`): the port defaults are one
 //! percent of the map area as water drops, erosion power `0.02`, and a
-//! talus angle of `120 m`. The stage installs its parameters into the
-//! export (params version 2, the block-presence layout) and a TOML
-//! configuration is available through the `params` module
+//! talus angle of `120 m`. It also carries the map-space feature count
+//! and detail floor and the recipe surface — the land share and the
+//! island density — through which consumers shape world types. The
+//! stage installs its parameters into the export (params version 5)
+//! and a TOML configuration is available through the `params` module
 //! ([`TerrainConfig`]).
 //!
 //! [`TerrainConfig`]: crate::params::TerrainConfig
@@ -62,7 +69,7 @@
 //!
 //!     let land = world.grid.cells.iter().filter(|cell| !cell.is_water).count();
 //!     assert!(land > 0, "the targeted land ratio keeps land on the map");
-//!     assert_eq!(world.params.params_version, 4);
+//!     assert_eq!(world.params.params_version, 5);
 //!     Ok(())
 //! }
 //! ```
@@ -78,7 +85,8 @@ use rand_chacha::rand_core::RngCore;
 use vernadsky_core::RngStreams;
 use vernadsky_core::quant::{HeightM, QuantError};
 use vernadsky_core::schema::{
-    CellRecord, ErosionParams, GenerationParams, GeographicWorld, NO_INDEX, TerrainParams,
+    CellRecord, ErosionParams, GenerationParams, GeographicWorld, NO_INDEX, PARAMS_VERSION,
+    TerrainParams,
 };
 
 /// Stream name of the base height noise.
@@ -98,8 +106,6 @@ const MAX_OCTAVES: i32 = 8;
 /// features below this wavelength in cells would read as speckle at
 /// any resolution (the mapgen port's finest octave).
 pub const DEFAULT_MIN_FEATURE_CELLS: u32 = 8;
-/// Island lift strength (mapgen `island_density` mid value).
-const ISLAND_DENSITY: f64 = 0.5;
 /// Smoothing radius of the two-pass box blur.
 const SMOOTH_RADIUS: usize = 2;
 /// Power-correction exponent (the port's neutral value; `1.0` keeps the
@@ -118,9 +124,13 @@ const DROP_INERTIA: f64 = 0.9;
 const DROP_DEPOSIT_SPEED: f64 = 0.1;
 /// Fraction of the load deposited per low-speed step (port value).
 const DROP_DEPOSIT_FRACTION: f64 = 0.1;
-/// Target land share after the offset search (the Earth-like
-/// convention of the port).
-const TARGET_LAND_RATIO: f64 = 0.3;
+/// The largest miss of the targeted land share the coarse offset
+/// search may leave: beyond it the fine search refines the offset. The
+/// former coarse-only search stays exact wherever it already met this
+/// tolerance, so the worlds it made reproduce.
+pub const LAND_RATIO_TOLERANCE: f64 = 0.015;
+/// Step of the fine offset search, over the coarse step's neighborhood.
+const FINE_OFFSET_STEP: f64 = 0.0005;
 /// Full physical height scale: normalized 0.5 maps to sea level (0 m),
 /// the extremes to ±6000 m.
 const HEIGHT_SCALE_M: f64 = 12_000.0;
@@ -201,6 +211,7 @@ pub fn generate(
     }
 
     // --- 2. Island effect: lift the lowlands with a second noise ---
+    let island_density = params.island_density.to_value();
     let islands = seeded_noise(
         streams,
         STREAM_ISLANDS,
@@ -217,7 +228,7 @@ pub fn generate(
             cylinder_radius(width),
         ));
         let lowland = (0.5 - *height).max(0.0);
-        *height += sample * ISLAND_DENSITY * lowland;
+        *height += sample * island_density * lowland;
     }
 
     // --- 3. Smoothing ---
@@ -251,7 +262,7 @@ pub fn generate(
     }
 
     // --- 8. Land-ratio targeting ---
-    apply_land_ratio_target(&mut heights, TARGET_LAND_RATIO);
+    apply_land_ratio_target(&mut heights, params.land_ratio.to_value());
 
     // --- 9. Physical hand-off ---
     let mut cells = Vec::with_capacity(cell_count);
@@ -277,11 +288,11 @@ pub fn generate(
 
     // The terrain block is installed without clobbering the climate
     // and hydrology blocks; the params version tracks the terrain
-    // layout (4, the map-space fields).
+    // layout (5, the recipe surface).
     let climate = world.params.climate.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {
-        params_version: 4,
+        params_version: PARAMS_VERSION,
         seed: world.params.seed,
         climate,
         terrain: Some(params.clone()),
@@ -485,20 +496,41 @@ const DIRECTIONS_HYDRAULIC: [(i64, i64); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)]
 
 /// Picks the offset whose land share (cells above the sea level mark)
 /// is closest to the target, and applies it.
+///
+/// The coarse search walks the offsets in hundredths over `[-0.5, 0.5)`.
+/// Near the median of the height distribution one hundredth can move
+/// the land share by more than a percentage point, so when the coarse
+/// best misses by more than [`LAND_RATIO_TOLERANCE`] a fine search over
+/// the neighboring hundredths refines it. Both walks keep the first
+/// strictly better offset: the choice is canonical.
 fn apply_land_ratio_target(heights: &mut [f64], target_land_ratio: f64) {
-    let count = heights.len() as f64;
-    let mut best_offset = 0.0;
-    let mut best_diff = f64::INFINITY;
-    for step in 0..100 {
-        let offset = step as f64 / 100.0 - 0.5;
+    let miss = |offset: f64| {
         let land = heights
             .iter()
             .filter(|&&value| (value + offset).clamp(0.0, 1.0) > 0.5)
             .count() as f64;
-        let diff = (land / count - target_land_ratio).abs();
+        (land / heights.len() as f64 - target_land_ratio).abs()
+    };
+    let mut best_offset = 0.0;
+    let mut best_diff = f64::INFINITY;
+    for step in 0..100 {
+        let offset = step as f64 / 100.0 - 0.5;
+        let diff = miss(offset);
         if diff < best_diff {
             best_diff = diff;
             best_offset = offset;
+        }
+    }
+    if best_diff > LAND_RATIO_TOLERANCE {
+        let center = best_offset;
+        let span = (0.01 / FINE_OFFSET_STEP) as i64;
+        for step in -span..=span {
+            let offset = center + step as f64 * FINE_OFFSET_STEP;
+            let diff = miss(offset);
+            if diff < best_diff {
+                best_diff = diff;
+                best_offset = offset;
+            }
         }
     }
     for value in &mut heights[..] {
@@ -533,6 +565,42 @@ mod tests {
         let mut narrow = vec![1.0, 0.0, 0.0, 1.0];
         box_smooth(&mut narrow, 4, 1, 2);
         assert!(narrow.iter().all(|v| (*v - 0.5).abs() < 1e-12));
+    }
+
+    fn land_share(heights: &[f64]) -> f64 {
+        heights.iter().filter(|&&value| value > 0.5).count() as f64 / heights.len() as f64
+    }
+
+    #[test]
+    fn the_coarse_search_stands_where_it_meets_the_tolerance() {
+        // Evenly spread heights: one hundredth of offset is one percent
+        // of land, so the coarse search is exact and the fine one never
+        // runs.
+        let mut heights: Vec<f64> = (0..1000).map(|i| (i as f64 + 0.5) / 1000.0).collect();
+        let before = heights.clone();
+        apply_land_ratio_target(&mut heights, 0.3);
+        assert!((land_share(&heights) - 0.3).abs() < 1e-9);
+        let offset = heights[500] - before[500];
+        assert!(
+            (offset - (-0.2)).abs() < 1e-9,
+            "a whole hundredth: {offset}"
+        );
+    }
+
+    #[test]
+    fn the_fine_search_takes_over_a_steep_distribution() {
+        // Heights crowded around the sea level mark: one hundredth of
+        // offset swings the land share from half the map to nothing, and
+        // the coarse search alone would miss the target by twenty points.
+        let mut heights: Vec<f64> = (0..1000)
+            .map(|i| 0.5 + (i as f64 - 500.0) * 0.00002)
+            .collect();
+        apply_land_ratio_target(&mut heights, 0.3);
+        let share = land_share(&heights);
+        assert!(
+            (share - 0.3).abs() <= LAND_RATIO_TOLERANCE,
+            "the refined share {share} meets the tolerance"
+        );
     }
 
     #[test]

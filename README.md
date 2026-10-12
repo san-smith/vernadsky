@@ -40,7 +40,25 @@ cargo run -p vernadsky-tools -- dump --seed 42 --out world.gwb
 cargo run -p vernadsky-tools -- validate --input world.gwb
 ```
 
-`render` rasterizes the world's layers (`height`, `water`, `rivers`, `temperature`, `humidity`, `precipitation`, `biome`, `territory`, `regions`, `potential`) into PNG maps, one file per layer; `dump` builds a world from a seed and writes it as a canonical export file; `validate` checks an export file and prints a summary. Worlds can also be loaded from an export file instead of a seed (`render --input world.gwb`), and each generation stage accepts TOML overrides through `--terrain-config`, `--config` (climate), and `--hydrology-config`.
+`render` rasterizes the world's layers (`height`, `water`, `rivers`, `temperature`, `humidity`, `precipitation`, `biome`, `territory`, `regions`, `potential`) into PNG maps, one file per layer; `dump` builds a world from a seed and writes it as a canonical export file; `validate` checks an export file and prints a summary, including the land share and the land components. Worlds can also be loaded from an export file instead of a seed (`render --input world.gwb`), and each generation stage accepts TOML overrides through `--terrain-config`, `--config` (climate), and `--hydrology-config`. `--water-cells N` replaces `--water-count` with a target area per water territory.
+
+### Shaping a world
+
+The terrain stage exposes a recipe surface through which a consumer shapes world types without touching the stages:
+
+| `TerrainConfig` field | Default | Domain     | Effect                                                                                                          |
+| --------------------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| `land_ratio`          | `0.3`   | 0.05–0.95  | Share of land cells: the sea level is placed to meet it (within 1.5 percentage points at any grid).              |
+| `features_across`     | `1.5`   | 0.5–8      | Base features around the map: few give one landmass, many give scattered continents; resolution-independent.     |
+| `island_density`      | `0.5`   | 0–3        | Island lift over the lowlands: subtle up to 1, island chains out of the deep ocean around 2, broken continents toward 3. |
+
+The climate stage (`temperature_offset_c`, `polar_amplification`, `humidity_offset`) moves temperature and moisture, and with them the biomes and the natural potential. Water territories can follow a target area (`WaterSplit::CellsPerTerritory` in `vernadsky-territory`, `build_world_with` in `vernadsky-tools`), which keeps them commensurate with the land territories at any land share and resolution; `land_components` reports the land structure for consumers that judge connectivity by their own thresholds.
+
+Stage changes are inspected at release resolutions: the structure test runs the pipeline at 512² and 1024² over the recipe surface and prints the calibration table.
+
+```bash
+cargo test --release -p vernadsky-tools --test recipe_structure -- --ignored --nocapture
+```
 
 ## Scope and conventions
 

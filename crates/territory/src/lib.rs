@@ -28,8 +28,10 @@
 //! 4. **Fill**: every uncovered land cell joins the territory whose
 //!    running centroid is nearest.
 //!
-//! **Water partition** (`water_count` territories): water is several
-//! disconnected surfaces, so it is partitioned per connected component.
+//! **Water partition** (a [`WaterSplit`]: a territory count, or a
+//! target area per territory from which the count follows): water is
+//! several disconnected surfaces, so it is partitioned per connected
+//! component.
 //! Every component receives at least one territory (a lake is one
 //! territory by itself); the remaining shares follow the area
 //! proportions by the largest-remainder rule. Within a component the
@@ -40,6 +42,13 @@
 //! territories are identified first, then water ones, both in the
 //! canonical anchor order through `IdAssigner`. Changing `water_count`
 //! therefore never shifts land identifiers, and vice versa.
+//!
+//! A target area keeps the water territories commensurate with the
+//! land ones on any grid: the count of a fixed area grows with the
+//! resolution, the area of a fixed count does too. [`land_components`]
+//! reports the land structure — the territory counts of the land
+//! components — for consumers that judge connectivity by their own
+//! thresholds.
 //!
 //! The stage consumes no randomness. `natural_potential` starts at `0`
 //! (the suitability stage owns it) and `region` stays `None` (the
@@ -110,6 +119,8 @@ pub enum TerritoryError {
         /// The maximal valid count: one territory per cell.
         maximal: usize,
     },
+    /// The target area of a water territory is zero.
+    InvalidWaterArea,
     /// A computed value could not be quantized onto its lattice.
     Quantization(QuantError),
     /// Stable identifier generation failed.
@@ -140,6 +151,12 @@ impl fmt::Display for TerritoryError {
                 f,
                 "water count {requested} is invalid: between the connected water component count ({minimal}) and the water cell count ({maximal})"
             ),
+            TerritoryError::InvalidWaterArea => {
+                write!(
+                    f,
+                    "the target area of a water territory must be at least one cell"
+                )
+            }
             TerritoryError::Quantization(source) => write!(f, "territory stage: {source}"),
             TerritoryError::IdGeneration(source) => write!(f, "territory stage: {source}"),
         }
@@ -174,9 +191,24 @@ struct Candidate {
     weight: SeedWeight,
 }
 
+/// How the water surface is partitioned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaterSplit {
+    /// Exactly this many water territories (at least one per connected
+    /// water component, at most one per water cell).
+    Count(usize),
+    /// Water territories of about this many cells: the count is the
+    /// water area divided by the target, rounded, raised to one per
+    /// connected component and capped at one per cell; the
+    /// largest-remainder apportionment then distributes it. Zero is
+    /// rejected.
+    CellsPerTerritory(u32),
+}
+
 /// Applies the territory stage to `world` in place: partitions the land
 /// surface into `land_count` territories and the water surface into
-/// `water_count` territories.
+/// `water_count` territories — the [`WaterSplit::Count`] case of
+/// [`generate_with`].
 ///
 /// Requires a consistent, non-empty grid; the land partition requires a
 /// filled climate section (with `land_count = 0` the world may skip the
@@ -187,6 +219,22 @@ pub fn generate(
     world: &mut GeographicWorld,
     land_count: usize,
     water_count: usize,
+) -> Result<(), TerritoryError> {
+    generate_with(world, land_count, WaterSplit::Count(water_count))
+}
+
+/// Applies the territory stage to `world` in place: partitions the land
+/// surface into `land_count` territories and the water surface as
+/// `water` says.
+///
+/// Requirements and purity are those of [`generate`]; a
+/// [`WaterSplit::CellsPerTerritory`] of zero is an
+/// [`TerritoryError::InvalidWaterArea`]. Land identifiers do not depend
+/// on the water split.
+pub fn generate_with(
+    world: &mut GeographicWorld,
+    land_count: usize,
+    water: WaterSplit,
 ) -> Result<(), TerritoryError> {
     let width = world.grid.width;
     let height = world.grid.height;
@@ -221,9 +269,22 @@ pub fn generate(
     };
 
     // --- Water partition, per connected component ---
+    let components = match water {
+        WaterSplit::Count(0) => Vec::new(),
+        WaterSplit::CellsPerTerritory(0) => return Err(TerritoryError::InvalidWaterArea),
+        _ => water_components(&world.grid.cells, row, height as usize),
+    };
+    let water_cells = components.iter().map(Vec::len).sum::<usize>();
+    let water_count = match water {
+        WaterSplit::Count(count) => count,
+        WaterSplit::CellsPerTerritory(area) => {
+            let area = area as usize;
+            ((water_cells + area / 2) / area)
+                .max(components.len())
+                .min(water_cells)
+        }
+    };
     let water_anchored = if water_count > 0 {
-        let components = water_components(&world.grid.cells, row, height as usize);
-        let water_cells = components.iter().map(Vec::len).sum::<usize>();
         if water_count < components.len() || water_count > water_cells {
             return Err(TerritoryError::InvalidWaterCount {
                 requested: water_count,
@@ -301,6 +362,63 @@ pub fn generate(
         });
     world.territories = territories;
     Ok(())
+}
+
+/// The land structure of a partitioned world: the territory counts of
+/// its land components, largest first.
+///
+/// Two land territories are connected when a pair of their cells are
+/// 4-neighbors (the map seamless along x, the poles clamped) — the
+/// adjacency of the regions stage, so the land components are the
+/// continents and islands. The query sets no thresholds: what counts as
+/// a significant component or a fragment is the consumer's judgment. A
+/// world without land territories reports no components.
+pub fn land_components(world: &GeographicWorld) -> Vec<u32> {
+    let territory_count = world.territories.len();
+    let mut parent: Vec<usize> = (0..territory_count).collect();
+    fn root(parent: &mut [usize], mut node: usize) -> usize {
+        while parent[node] != node {
+            parent[node] = parent[parent[node]];
+            node = parent[node];
+        }
+        node
+    }
+    let row = world.grid.width as usize;
+    let height = world.grid.height as usize;
+    let cells = &world.grid.cells;
+    for index in 0..cells.len().min(row * height) {
+        if cells[index].is_water || cells[index].territory == NO_INDEX {
+            continue;
+        }
+        let y = index / row;
+        let x = index % row;
+        // Right and down neighbors cover every adjacent pair once; the
+        // right neighbor of the last column is the wrap edge.
+        for (dy, dx) in [(0usize, 1usize), (1, 0)] {
+            let ny = y + dy;
+            if ny >= height {
+                continue;
+            }
+            let neighbor = ny * row + (x + dx) % row;
+            let (a, b) = (cells[index].territory, cells[neighbor].territory);
+            if cells[neighbor].is_water || b == NO_INDEX || a == b {
+                continue;
+            }
+            let (ra, rb) = (root(&mut parent, a as usize), root(&mut parent, b as usize));
+            if ra != rb {
+                parent[ra.max(rb)] = ra.min(rb);
+            }
+        }
+    }
+    let mut sizes = vec![0u32; territory_count];
+    for (position, territory) in world.territories.iter().enumerate() {
+        if !territory.is_water {
+            sizes[root(&mut parent, position)] += 1;
+        }
+    }
+    let mut components: Vec<u32> = sizes.into_iter().filter(|&size| size > 0).collect();
+    components.sort_unstable_by(|a, b| b.cmp(a));
+    components
 }
 
 /// The land partition: weighted seed selection, multi-source BFS
@@ -910,6 +1028,98 @@ mod tests {
                 maximal: 60
             })
         );
+    }
+
+    #[test]
+    fn water_split_by_area_follows_the_water_surface() {
+        // 60 water cells in three components: the outer sea (50), the
+        // ring lake (9), and the one-cell lake.
+        let count_of = |split: WaterSplit| {
+            let mut world = world_with_lake_and_sea();
+            generate_with(&mut world, 6, split).expect("partition succeeds");
+            world.territories.iter().filter(|t| t.is_water).count()
+        };
+        assert_eq!(count_of(WaterSplit::CellsPerTerritory(10)), 6, "60 / 10");
+        assert_eq!(
+            count_of(WaterSplit::CellsPerTerritory(8)),
+            8,
+            "60 / 8 rounds to 8"
+        );
+        assert_eq!(
+            count_of(WaterSplit::CellsPerTerritory(1000)),
+            3,
+            "every component keeps its territory"
+        );
+        assert_eq!(
+            count_of(WaterSplit::CellsPerTerritory(1)),
+            60,
+            "one per cell"
+        );
+        let mut world = world_with_lake_and_sea();
+        assert_eq!(
+            generate_with(&mut world, 6, WaterSplit::CellsPerTerritory(0)),
+            Err(TerritoryError::InvalidWaterArea)
+        );
+    }
+
+    #[test]
+    fn the_count_split_is_the_plain_stage() {
+        let mut plain = world_with_lake_and_sea();
+        let mut split = plain.clone();
+        generate(&mut plain, 6, 7).expect("partition succeeds");
+        generate_with(&mut split, 6, WaterSplit::Count(7)).expect("partition succeeds");
+        assert_eq!(plain, split);
+    }
+
+    #[test]
+    fn land_ids_do_not_depend_on_the_water_split() {
+        let land = |split: WaterSplit| {
+            let mut world = world_with_lake_and_sea();
+            generate_with(&mut world, 6, split).expect("partition succeeds");
+            world
+                .territories
+                .iter()
+                .filter(|t| !t.is_water)
+                .map(|t| (t.id.0, t.anchor.x, t.anchor.y, t.cell_count))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            land(WaterSplit::Count(3)),
+            land(WaterSplit::CellsPerTerritory(5))
+        );
+    }
+
+    #[test]
+    fn land_components_are_the_continents_and_islands() {
+        let mut world = world_with_lake_and_sea();
+        assert!(
+            land_components(&world).is_empty(),
+            "nothing partitioned yet"
+        );
+        generate(&mut world, 6, 3).expect("partition succeeds");
+        let components = land_components(&world);
+        assert_eq!(components.len(), 2, "two separate land rings");
+        assert_eq!(
+            components.iter().sum::<u32>(),
+            6,
+            "every land territory counted"
+        );
+        assert!(components[0] >= components[1], "largest first");
+    }
+
+    #[test]
+    fn land_components_join_across_the_x_seam() {
+        // Two one-cell islands at the western and eastern edges of the
+        // same row: the map is seamless along x, so they touch.
+        let mut world = skeleton_world(6, 3, 3);
+        let cells = world.grid.cells.len();
+        world.climate.temperature = Some(vec![TempDeciC(100); cells]);
+        world.climate.humidity = Some(vec![HumidDeciPct(500); cells]);
+        for (index, cell) in world.grid.cells.iter_mut().enumerate() {
+            cell.is_water = !(index == 6 || index == 11);
+        }
+        generate(&mut world, 2, 0).expect("partition succeeds");
+        assert_eq!(land_components(&world), vec![2]);
     }
 
     #[test]

@@ -28,3 +28,5 @@ jobs:
       - run: cargo clippy -- -D warnings
       - run: cargo doc --no-deps
       - run: cargo test
+      - name: Recipe structure at release resolutions
+        run: cargo test --release -p vernadsky-tools --test recipe_structure -- --ignored --nocapture

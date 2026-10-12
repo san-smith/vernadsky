@@ -43,7 +43,10 @@ pub const NO_INDEX: u32 = u32::MAX;
 /// Version history: version 2 carried `erosion` only; version 4 adds
 /// the map-space normalization fields — the base feature count and the
 /// detail floor — making the world's macro structure independent of the
-/// grid resolution.
+/// grid resolution; version 5 adds the recipe surface — the targeted
+/// land share and the island density, constants of the stage before.
+/// Readers of the older layouts synthesize the former constants
+/// (`0.30` land, `0.50` islands), which reproduce those worlds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TerrainParams {
     /// Erosion configuration; `None` when the profile runs without
@@ -58,7 +61,29 @@ pub struct TerrainParams {
     /// cells (conventional domain `1..=256`). The detail floor: smaller
     /// features would read as speckle at any resolution.
     pub min_feature_cells: u32,
+    /// The targeted share of land cells, in hundredths (conventional
+    /// domain `5..=95`): the sea level is placed so that this share of
+    /// the map stands above it. The former constant is `30`.
+    pub land_ratio: CentiScalar,
+    /// Strength of the island lift over the lowlands, in hundredths
+    /// (conventional domain `0..=300`): `0` keeps the oceans free of
+    /// the island layer, values above `100` raise island chains out of
+    /// the deep ocean. The former constant is `50`.
+    pub island_density: CentiScalar,
 }
+
+/// The land share of the terrain layouts before params version 5, in
+/// hundredths: the readers of those layouts synthesize it.
+pub const LEGACY_LAND_RATIO: CentiScalar = CentiScalar(30);
+
+/// The island density of the terrain layouts before params version 5,
+/// in hundredths: the readers of those layouts synthesize it.
+pub const LEGACY_ISLAND_DENSITY: CentiScalar = CentiScalar(50);
+
+/// The params version the stages write: the current layout of the
+/// terrain block (version 5, the recipe surface). A world without the
+/// terrain block keeps the older, structure-derived versions.
+pub const PARAMS_VERSION: u32 = 5;
 
 /// Hydraulic erosion tuning (the thermal pass is deterministic and
 /// keeps port constants).
@@ -88,9 +113,11 @@ pub struct ErosionParams {
 /// diagnostic.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GenerationParams {
-    /// Version of the parameters structure itself: `3` when the
-    /// hydrology block is present, `2` when the terrain block is, `1`
-    /// when only the climate block is, `0` for the bare seed.
+    /// Version of the parameters structure itself: [`PARAMS_VERSION`]
+    /// (`5`) when the terrain block is present in its current layout
+    /// (`4` and `2` are its older layouts), `3` when only the hydrology
+    /// block is, `1` when only the climate block is, `0` for the bare
+    /// seed.
     pub params_version: u32,
     /// Master seed of the generation. Stored from the start; consumed by
     /// the seeded stages as they come online.

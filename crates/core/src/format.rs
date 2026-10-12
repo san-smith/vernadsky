@@ -22,9 +22,9 @@ use crate::quant::{
 };
 use crate::schema::{
     Anchor, BIOME_REGISTRY, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity,
-    ErosionParams, GenerationParams, GeographicWorld, GridSection, HydrologyParams, NO_INDEX,
-    RegionRecord, RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind,
-    WaterBodyRecord,
+    ErosionParams, GenerationParams, GeographicWorld, GridSection, HydrologyParams,
+    LEGACY_ISLAND_DENSITY, LEGACY_LAND_RATIO, NO_INDEX, RegionRecord, RiverRecord, SCHEMA_VERSION,
+    TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 
 /// File magic of the canonical export format.
@@ -203,7 +203,7 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
     // The params version is the layout declaration: the stages install
     // it together with their blocks, and the writer serializes exactly
     // the declared layout. This keeps a decoded legacy file (version 2
-    // or 3) re-serializable into its own byte layout instead of being
+    // or 3, 4) re-serializable into its own byte layout instead of being
     // silently upgraded. Versions 2 and up carry the block-presence
     // flags; versions 0 and 1 predate the flags.
     let version = world.params.params_version;
@@ -219,6 +219,7 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
                 | (2, true, false)
                 | (3, false, true)
                 | (4, true, _)
+                | (5, true, _)
         ),
         "params_version {version} is inconsistent with the present parameter blocks"
     );
@@ -253,9 +254,13 @@ pub fn to_bytes(world: &GeographicWorld) -> Vec<u8> {
                 b.extend_from_slice(&erosion.talus.0.to_le_bytes());
             }
         }
-        if version == 4 {
+        if version >= 4 {
             b.extend_from_slice(&terrain.features_across.0.to_le_bytes());
             b.extend_from_slice(&terrain.min_feature_cells.to_le_bytes());
+        }
+        if version >= 5 {
+            b.extend_from_slice(&terrain.land_ratio.0.to_le_bytes());
+            b.extend_from_slice(&terrain.island_density.0.to_le_bytes());
         }
     }
     if let Some(hydrology) = &world.params.hydrology {
@@ -407,6 +412,8 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
             erosion,
             features_across: CentiScalar(150),
             min_feature_cells: 8,
+            land_ratio: LEGACY_LAND_RATIO,
+            island_density: LEGACY_ISLAND_DENSITY,
         })
     };
     let (climate_params, terrain_params, hydrology_params) = match params_version {
@@ -451,11 +458,13 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
             });
             (climate_params, terrain_params, hydrology_params)
         }
-        4 => {
+        4 | 5 => {
             // Version 4 implies the terrain block in the map-space
             // layout (erosion plus the feature count and the detail
-            // floor); the hydrology and climate blocks are optional per
-            // their flags.
+            // floor); version 5 appends the recipe surface (the land
+            // share and the island density), which version 4 lacks and
+            // takes from the former constants. The hydrology and climate
+            // blocks are optional per their flags.
             let flags = r.take_u8()?;
             if flags & 0b10 == 0 {
                 return Err(FormatError::InvalidParamsFlags(flags));
@@ -474,10 +483,19 @@ pub fn from_bytes(bytes: &[u8]) -> Result<GeographicWorld, FormatError> {
                 }),
                 other => return Err(FormatError::InvalidBool(other)),
             };
+            let features_across = CentiScalar(r.take_i16()?);
+            let min_feature_cells = r.take_u32()?;
+            let (land_ratio, island_density) = if params_version == 5 {
+                (CentiScalar(r.take_i16()?), CentiScalar(r.take_i16()?))
+            } else {
+                (LEGACY_LAND_RATIO, LEGACY_ISLAND_DENSITY)
+            };
             let terrain_params = Some(TerrainParams {
                 erosion,
-                features_across: CentiScalar(r.take_i16()?),
-                min_feature_cells: r.take_u32()?,
+                features_across,
+                min_feature_cells,
+                land_ratio,
+                island_density,
             });
             let hydrology_params = if flags & 0b100 != 0 {
                 Some(HydrologyParams {
@@ -1157,6 +1175,8 @@ mod tests {
                 }),
                 features_across: CentiScalar(150),
                 min_feature_cells: 8,
+                land_ratio: LEGACY_LAND_RATIO,
+                island_density: LEGACY_ISLAND_DENSITY,
             }),
             hydrology: None,
         };
@@ -1184,6 +1204,8 @@ mod tests {
                 erosion: None,
                 features_across: CentiScalar(150),
                 min_feature_cells: 8,
+                land_ratio: LEGACY_LAND_RATIO,
+                island_density: LEGACY_ISLAND_DENSITY,
             }),
             hydrology: None,
         };
@@ -1267,13 +1289,13 @@ mod tests {
         // keep the content hash consistent so the version gate is what
         // rejects the file.
         let offset = params_offset();
-        bytes[offset..offset + 4].copy_from_slice(&5u32.to_le_bytes());
+        bytes[offset..offset + 4].copy_from_slice(&6u32.to_le_bytes());
         let hash = fnv1a64(&bytes[..bytes.len() - 8]);
         let tail = bytes.len() - 8;
         bytes[tail..].copy_from_slice(&hash.to_le_bytes());
         assert_eq!(
             from_bytes(&bytes),
-            Err(FormatError::UnsupportedParamsVersion(5))
+            Err(FormatError::UnsupportedParamsVersion(6))
         );
     }
 
@@ -1288,6 +1310,8 @@ mod tests {
                 erosion: None,
                 features_across: CentiScalar(150),
                 min_feature_cells: 8,
+                land_ratio: LEGACY_LAND_RATIO,
+                island_density: LEGACY_ISLAND_DENSITY,
             }),
             hydrology: Some(HydrologyParams {
                 river_land_share: CentiScalar(12),
@@ -1314,6 +1338,58 @@ mod tests {
         let decoded = from_bytes(&bytes).expect("valid");
         assert!(decoded.params.climate.is_some());
         assert_eq!(decoded.params.terrain.unwrap().min_feature_cells, 8);
+    }
+
+    #[test]
+    fn round_trips_recipe_terrain_parameters() {
+        let mut world = synthetic::minimal_world();
+        world.params = GenerationParams {
+            params_version: crate::schema::PARAMS_VERSION,
+            seed: 0x5EED,
+            climate: None,
+            terrain: Some(TerrainParams {
+                erosion: None,
+                features_across: CentiScalar(70),
+                min_feature_cells: 8,
+                land_ratio: CentiScalar(92),
+                island_density: CentiScalar(0),
+            }),
+            hydrology: Some(HydrologyParams {
+                river_land_share: CentiScalar(12),
+            }),
+        };
+        let bytes = world.to_bytes();
+        let decoded = from_bytes(&bytes).expect("valid");
+        assert_eq!(decoded, world);
+        let terrain = decoded.params.terrain.clone().unwrap();
+        assert_eq!(terrain.land_ratio, CentiScalar(92));
+        assert_eq!(terrain.island_density, CentiScalar(0));
+
+        // The version-4 layout drops the recipe surface on write and
+        // reads it back as the former constants.
+        world.params.params_version = 4;
+        let decoded = from_bytes(&world.to_bytes()).expect("valid");
+        let terrain = decoded.params.terrain.unwrap();
+        assert_eq!(terrain.land_ratio, LEGACY_LAND_RATIO);
+        assert_eq!(terrain.island_density, LEGACY_ISLAND_DENSITY);
+        assert_eq!(terrain.features_across, CentiScalar(70));
+    }
+
+    #[test]
+    fn reads_legacy_params_v4_exports() {
+        // Committed at the pre-recipe revision (params version 4): the
+        // reader synthesizes the former land and island constants.
+        let bytes = include_bytes!("../tests/golden/params_v4_world.gwb");
+        let world = from_bytes(bytes).expect("the legacy params-v4 export stays readable");
+        assert_eq!(world.params.params_version, 4);
+        let terrain = world.params.terrain.clone().expect("the terrain block");
+        assert_eq!(terrain.land_ratio, LEGACY_LAND_RATIO);
+        assert_eq!(terrain.island_density, LEGACY_ISLAND_DENSITY);
+        assert_eq!(
+            world.to_bytes(),
+            bytes.as_slice(),
+            "the legacy layout re-serializes as is"
+        );
     }
 
     #[test]

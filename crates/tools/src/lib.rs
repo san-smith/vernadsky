@@ -17,6 +17,8 @@ use anyhow::Context;
 use vernadsky_core::schema::ClimateParams;
 use vernadsky_core::{GeographicWorld, RngStreams};
 
+pub use vernadsky_territory::{WaterSplit, land_components};
+
 /// Fixture pipeline size: the tool's default world dimensions and
 /// partition counts.
 pub const FIXTURE_WIDTH: u32 = 48;
@@ -47,7 +49,9 @@ pub fn build_fixture_world(
 /// and enrichment stages.
 ///
 /// This mirrors the current generation pipeline; the resulting world is
-/// the same one the export files carry.
+/// the same one the export files carry. The water surface splits into
+/// exactly `water_count` territories — the [`WaterSplit::Count`] case
+/// of [`build_world_with`].
 // CLI/world-building plumbing: the arguments mirror the stage
 // parameters of the current pipeline one to one.
 #[allow(clippy::too_many_arguments)]
@@ -57,6 +61,34 @@ pub fn build_world(
     height: u32,
     land_count: usize,
     water_count: usize,
+    terrain: Option<&vernadsky_core::TerrainParams>,
+    climate: Option<&ClimateParams>,
+    hydrology: Option<&vernadsky_core::HydrologyParams>,
+) -> anyhow::Result<GeographicWorld> {
+    build_world_with(
+        seed,
+        width,
+        height,
+        land_count,
+        WaterSplit::Count(water_count),
+        terrain,
+        climate,
+        hydrology,
+    )
+}
+
+/// [`build_world`] with the water surface split as `water` says: a
+/// [`WaterSplit::CellsPerTerritory`] keeps the water territories
+/// commensurate with the land ones, whatever the land share and the
+/// grid resolution.
+// CLI/world-building plumbing, as `build_world`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_world_with(
+    seed: u64,
+    width: u32,
+    height: u32,
+    land_count: usize,
+    water: WaterSplit,
     terrain: Option<&vernadsky_core::TerrainParams>,
     climate: Option<&ClimateParams>,
     hydrology: Option<&vernadsky_core::HydrologyParams>,
@@ -83,7 +115,7 @@ pub fn build_world(
         };
         vernadsky_hydrology::generate(&mut world, &hydrology_params)
             .context("hydrology stage failed")?;
-        vernadsky_territory::generate(&mut world, land_count, water_count)
+        vernadsky_territory::generate_with(&mut world, land_count, water)
             .context("territory stage failed")?;
         vernadsky_territory::generate_regions(&mut world).context("regions failed")?;
         vernadsky_export::enrich(&mut world).context("enrichment failed")?;

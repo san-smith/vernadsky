@@ -34,21 +34,21 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// manifest seed, on the reference platform (Linux x86_64, pinned
 /// toolchain), with the default stage configurations.
 const MANIFEST_HASHES_ERODED: [u64; 5] = [
-    0x40cf_6aa3_f09e_d614,
-    0x383f_c6dc_f76b_7c34,
-    0x9eb3_b835_caa1_1b92,
-    0x8d7d_ee4c_bb24_a184,
-    0x4606_0204_17ee_a8f4,
+    0x1349_67ef_85ad_9be9,
+    0x4262_1038_72ea_1281,
+    0x5c87_33a7_6b86_5a47,
+    0xc17f_8031_b183_1c29,
+    0x7830_c4cf_4ac7_4a75,
 ];
 
 /// Content hashes of the no-erosion profile: the same pipeline with
 /// `erosion_enabled = false`.
 const MANIFEST_HASHES_PLAIN: [u64; 5] = [
-    0x3d91_c951_04a8_208a,
-    0xa92b_5bd6_ffd7_1980,
-    0x6e22_8385_b311_2384,
-    0xf505_8994_fa1c_e443,
-    0x770f_90a2_3c4a_131a,
+    0x1935_90d5_5652_3a5f,
+    0x06b4_3240_dbed_fc99,
+    0x9ffb_14d3_0f2e_e0d5,
+    0x4dcb_58c3_5956_809a,
+    0xc67c_e1cd_2227_2d93,
 ];
 
 /// Fixture grid of the golden runs (the fixture world dimensions).
@@ -123,7 +123,7 @@ fn generation_is_deterministic() {
 fn filled_worlds_round_trip() {
     for seed in MANIFEST_SEEDS {
         let world = real_pipeline_world(seed, true);
-        assert_eq!(world.params.params_version, 4, "seed {seed:#018x}");
+        assert_eq!(world.params.params_version, 5, "seed {seed:#018x}");
         assert!(world.params.terrain.is_some());
         assert!(world.params.climate.is_some());
         assert!(world.params.hydrology.is_some());
