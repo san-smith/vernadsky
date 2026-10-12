@@ -194,8 +194,13 @@ pub fn generate(
     world.water_bodies = water_bodies;
     world.params.hydrology = Some(*params);
     // The version tracks the layout generation: the terrain block's
-    // map-space fields (version 4) must survive this stage.
-    world.params.params_version = if world.params.terrain.is_some() { 4 } else { 3 };
+    // current layout (the recipe surface, version 5) must survive this
+    // stage.
+    world.params.params_version = if world.params.terrain.is_some() {
+        vernadsky_core::PARAMS_VERSION
+    } else {
+        3
+    };
     world.rivers = river_paths
         .into_iter()
         .map(|path| RiverRecord {

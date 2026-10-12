@@ -241,12 +241,13 @@ pub fn generate(
 
     // The climate block is installed without clobbering the terrain
     // block: stages compose, and the params version tracks the present
-    // blocks (2 when terrain ran first, 1 otherwise).
+    // blocks (the terrain layout when terrain ran first, 3 with the
+    // hydrology block alone, 1 otherwise).
     let terrain = world.params.terrain.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {
         params_version: if terrain.is_some() {
-            4
+            vernadsky_core::PARAMS_VERSION
         } else if hydrology.is_some() {
             3
         } else {

@@ -13,7 +13,8 @@ use image::{ImageBuffer, Rgb};
 
 use vernadsky_tools::render::{Layer, Raster, rasterize, zoom};
 use vernadsky_tools::{
-    build_world, climate_params_from_toml, hydrology_params_from_toml, terrain_params_from_toml,
+    WaterSplit, build_world_with, climate_params_from_toml, hydrology_params_from_toml,
+    land_components, terrain_params_from_toml,
 };
 
 /// How the world under rendering is produced.
@@ -27,7 +28,7 @@ enum Source {
         width: u32,
         grid_height: u32,
         land_count: usize,
-        water_count: usize,
+        water: WaterSplit,
         no_climate: bool,
         config: Option<PathBuf>,
         hydrology_config: Option<PathBuf>,
@@ -67,6 +68,10 @@ enum Command {
         /// Water territory count (with --seed).
         #[arg(long, default_value_t = 8)]
         water_count: usize,
+        /// Target water territory area in cells (with --seed): the
+        /// count follows from the water area, replacing --water-count.
+        #[arg(long, conflicts_with = "water_count")]
+        water_cells: Option<u32>,
         /// Output path prefix; one PNG per available layer.
         #[arg(long, default_value = "map")]
         out: PathBuf,
@@ -103,6 +108,10 @@ enum Command {
         /// Water territory count.
         #[arg(long, default_value_t = 8)]
         water_count: usize,
+        /// Target water territory area in cells: the count follows from
+        /// the water area, replacing --water-count.
+        #[arg(long, conflicts_with = "water_count")]
+        water_cells: Option<u32>,
         /// Output file path.
         #[arg(long)]
         out: PathBuf,
@@ -137,6 +146,7 @@ fn main() -> anyhow::Result<()> {
             grid_height,
             land_count,
             water_count,
+            water_cells,
             no_climate,
             config,
             hydrology_config,
@@ -150,7 +160,7 @@ fn main() -> anyhow::Result<()> {
                     width,
                     grid_height,
                     land_count,
-                    water_count,
+                    water: water_split(water_count, water_cells),
                     no_climate,
                     config,
                     hydrology_config,
@@ -167,6 +177,7 @@ fn main() -> anyhow::Result<()> {
             grid_height,
             land_count,
             water_count,
+            water_cells,
             out,
             config,
             hydrology_config,
@@ -176,7 +187,7 @@ fn main() -> anyhow::Result<()> {
             width,
             grid_height,
             land_count,
-            water_count,
+            water_split(water_count, water_cells),
             &out,
             terrain_config.as_deref(),
             config.as_deref(),
@@ -198,7 +209,7 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
             width,
             grid_height,
             land_count,
-            water_count,
+            water,
             no_climate,
             config,
             hydrology_config,
@@ -237,12 +248,12 @@ fn load_world(source: &Source) -> anyhow::Result<vernadsky_core::GeographicWorld
                 }
                 None => None,
             };
-            build_world(
+            build_world_with(
                 *seed,
                 *width,
                 *grid_height,
                 *land_count,
-                *water_count,
+                *water,
                 terrain.as_ref(),
                 climate.as_ref(),
                 hydrology.as_ref(),
@@ -278,7 +289,7 @@ fn cmd_dump(
     width: u32,
     height: u32,
     land_count: usize,
-    water_count: usize,
+    water: WaterSplit,
     out: &std::path::Path,
     terrain_config: Option<&std::path::Path>,
     config: Option<&std::path::Path>,
@@ -313,12 +324,12 @@ fn cmd_dump(
         }
         None => None,
     };
-    let world = build_world(
+    let world = build_world_with(
         seed,
         width,
         height,
         land_count,
-        water_count,
+        water,
         terrain.as_ref(),
         climate.as_ref(),
         hydrology.as_ref(),
@@ -334,6 +345,15 @@ fn cmd_dump(
         elapsed
     );
     Ok(())
+}
+
+/// The water split of the command line: a target area replaces the
+/// count when given.
+fn water_split(water_count: usize, water_cells: Option<u32>) -> WaterSplit {
+    match water_cells {
+        Some(area) => WaterSplit::CellsPerTerritory(area),
+        None => WaterSplit::Count(water_count),
+    }
 }
 
 fn path_with_layer(out: &std::path::Path, layer: &str) -> PathBuf {
@@ -359,6 +379,28 @@ fn cmd_validate(input: &std::path::Path) -> anyhow::Result<()> {
         world.rivers.len(),
         world.params.seed,
         world.params.params_version,
+    );
+    // The land structure: the share of land cells and the territory
+    // counts of the land components, largest first (a consumer judges
+    // connectivity against its own thresholds).
+    let land_cells = world
+        .grid
+        .cells
+        .iter()
+        .filter(|cell| !cell.is_water)
+        .count();
+    let components = land_components(&world);
+    let shown: Vec<String> = components.iter().take(12).map(u32::to_string).collect();
+    println!(
+        "land {:.1}% of cells; {} land component(s): {}{}",
+        100.0 * land_cells as f64 / world.grid.cells.len().max(1) as f64,
+        components.len(),
+        shown.join(", "),
+        if components.len() > shown.len() {
+            ", …"
+        } else {
+            ""
+        },
     );
     Ok(())
 }

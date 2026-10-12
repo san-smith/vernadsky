@@ -14,7 +14,15 @@
 //! talus_m = 120.0                      # thermal talus angle, meters [10, 500]
 //! features_across = 2.0                # base features around the map [0.5, 8]
 //! min_feature_cells = 8                # detail floor, cells [1, 256]
+//! land_ratio = 0.3                     # targeted land share [0.05, 0.95]
+//! island_density = 0.5                 # island lift over the lowlands [0, 3]
 //! ```
+//!
+//! The recipe surface — `land_ratio`, `island_density`, and
+//! `features_across` — is what a consumer varies to shape a world type:
+//! a supercontinent is a high land share with few base features and no
+//! islands, an archipelago a low land share with many features and a
+//! strong island layer.
 
 use std::fmt;
 
@@ -79,8 +87,9 @@ impl std::error::Error for ParamsError {
 ///
 /// Defaults describe the calibrated profile: one and a half base
 /// features across the map (a dominant continent at every resolution),
-/// an eight-cell detail floor, erosion on, one percent of the map area
-/// as water drops, erosion power `0.02`, and a talus angle of `120 m`.
+/// an eight-cell detail floor, thirty percent of the map as land with
+/// the mid island layer, erosion on, one percent of the map area as
+/// water drops, erosion power `0.02`, and a talus angle of `120 m`.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TerrainConfig {
@@ -93,6 +102,17 @@ pub struct TerrainConfig {
     /// the detail floor against coastline speckle.
     #[serde(default = "default_min_feature_cells")]
     pub min_feature_cells: u32,
+    /// The targeted share of land cells: the sea level is placed so that
+    /// this share of the map stands above it.
+    #[serde(default = "default_land_ratio")]
+    pub land_ratio: f64,
+    /// Strength of the island lift over the lowlands: `0` keeps the
+    /// oceans free of the island layer. Up to `1` the layer is subtle
+    /// (the default `0.5` is the port value); around `2` it raises
+    /// island chains out of the deep ocean, and toward `3` it begins to
+    /// break the continents themselves.
+    #[serde(default = "default_island_density")]
+    pub island_density: f64,
     /// Whether the thermal and hydraulic erosion passes run.
     #[serde(default = "default_erosion_enabled")]
     pub erosion_enabled: bool,
@@ -116,6 +136,14 @@ fn default_min_feature_cells() -> u32 {
     8
 }
 
+fn default_land_ratio() -> f64 {
+    0.3
+}
+
+fn default_island_density() -> f64 {
+    0.5
+}
+
 fn default_erosion_enabled() -> bool {
     true
 }
@@ -137,6 +165,8 @@ impl Default for TerrainConfig {
         Self {
             features_across: default_features_across(),
             min_feature_cells: default_min_feature_cells(),
+            land_ratio: default_land_ratio(),
+            island_density: default_island_density(),
             erosion_enabled: default_erosion_enabled(),
             droplets_per_hundred_cells: default_droplets(),
             power: default_power(),
@@ -176,6 +206,8 @@ impl TerrainConfig {
             erosion,
             features_across: centi("features_across", self.features_across, 0.5..=8.0)?,
             min_feature_cells: self.min_feature_cells,
+            land_ratio: centi("land_ratio", self.land_ratio, 0.05..=0.95)?,
+            island_density: centi("island_density", self.island_density, 0.0..=3.0)?,
         })
     }
 }
@@ -225,6 +257,36 @@ mod tests {
         assert_eq!(erosion.talus, HeightM(120));
         assert_eq!(params.features_across, CentiScalar(150), "1.5 features");
         assert_eq!(params.min_feature_cells, 8);
+        assert_eq!(params.land_ratio, vernadsky_core::LEGACY_LAND_RATIO);
+        assert_eq!(params.island_density, vernadsky_core::LEGACY_ISLAND_DENSITY);
+    }
+
+    #[test]
+    fn parses_and_bounds_the_recipe_surface() {
+        let params = from_toml_str(
+            "land_ratio = 0.92
+island_density = 0.0
+features_across = 0.7
+",
+        )
+        .expect("valid document");
+        assert_eq!(params.land_ratio, CentiScalar(92));
+        assert_eq!(params.island_density, CentiScalar(0));
+        assert_eq!(params.features_across, CentiScalar(70));
+        assert!(matches!(
+            from_toml_str("land_ratio = 0.99\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "land_ratio",
+                ..
+            })
+        ));
+        assert!(matches!(
+            from_toml_str("island_density = 3.5\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "island_density",
+                ..
+            })
+        ));
     }
 
     #[test]

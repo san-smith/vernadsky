@@ -33,11 +33,11 @@ const MANIFEST_SEEDS: [u64; 5] = [0, 42, 0x0000_DEAD_BEEF, 0x5EED_5EED_5EED_5EED
 /// toolchain), with the default stage configurations and the fixture
 /// territory count.
 const MANIFEST_HASHES: [u64; 5] = [
-    0xc522_f6b7_f3ca_17d4,
-    0x1ed2_5abd_a3b7_6368,
-    0x1651_6c14_8f54_3d9f,
-    0x2ec1_0b69_9a1f_d382,
-    0xf299_d566_6f6c_f548,
+    0x65ca_8b87_d920_7799,
+    0xbedc_5485_1929_f901,
+    0x46cb_b434_5cfb_f5da,
+    0x2031_33a2_f6ee_0e3b,
+    0xf791_272a_0884_7cdd,
 ];
 
 /// Fixture grid and partition sizes of the golden runs.
