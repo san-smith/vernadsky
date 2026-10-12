@@ -44,9 +44,12 @@ pub const NO_INDEX: u32 = u32::MAX;
 /// the map-space normalization fields — the base feature count and the
 /// detail floor — making the world's macro structure independent of the
 /// grid resolution; version 5 adds the recipe surface — the targeted
-/// land share and the island density, constants of the stage before.
-/// Readers of the older layouts synthesize the former constants
-/// (`0.30` land, `0.50` islands), which reproduce those worlds.
+/// land share and the island density, constants of the stage before;
+/// version 6 adds the land's shape — the curve of the land elevations,
+/// the domain warp of the relief, and the ridged ranges. Readers of the
+/// older layouts synthesize the former constants (`0.30` land, `0.50`
+/// islands, a linear curve, no warp, no ridges), which reproduce those
+/// worlds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TerrainParams {
     /// Erosion configuration; `None` when the profile runs without
@@ -70,6 +73,32 @@ pub struct TerrainParams {
     /// the island layer, values above `100` raise island chains out of
     /// the deep ocean. The former constant is `50`.
     pub island_density: CentiScalar,
+    /// The exponent of the land elevation curve, in hundredths
+    /// (conventional domain `100..=400`): the elevation above the sea
+    /// level is `(2n)^k · 6000 m` for the normalized height `n` above
+    /// the sea level mark. `100` is the linear curve — land elevations
+    /// spread evenly up to 6000 m; larger values crowd the land into
+    /// lowlands under a few high ranges, the shape of Earth's
+    /// hypsometric curve. The former constant is `100`.
+    pub land_hypsometry: CentiScalar,
+    /// The reach of the domain warp, in hundredths of the map width
+    /// (conventional domain `0..=30`): the relief is sampled at
+    /// coordinates displaced by a smooth noise field, which bends the
+    /// coastlines into peninsulas, gulfs, and island chains. `0` is no
+    /// warp, the former relief.
+    pub warp_strength: CentiScalar,
+    /// The warp field's features across the map, in hundredths
+    /// (conventional domain `100..=1200`): few bend whole continents,
+    /// many fray the coasts.
+    pub warp_features: CentiScalar,
+    /// The height of the ridged ranges, in hundredths of the height
+    /// scale (conventional domain `0..=100`): a ridged noise raises
+    /// long, narrow mountain chains over the land and the shallows. `0`
+    /// is no ranges, the former relief.
+    pub ridge_strength: CentiScalar,
+    /// The ranges' features across the map, in hundredths
+    /// (conventional domain `100..=1200`).
+    pub ridge_features: CentiScalar,
 }
 
 /// The land share of the terrain layouts before params version 5, in
@@ -80,10 +109,25 @@ pub const LEGACY_LAND_RATIO: CentiScalar = CentiScalar(30);
 /// in hundredths: the readers of those layouts synthesize it.
 pub const LEGACY_ISLAND_DENSITY: CentiScalar = CentiScalar(50);
 
+/// The land hypsometry of the terrain layouts before params version 6,
+/// in hundredths (the linear curve): the readers of those layouts
+/// synthesize it.
+pub const LEGACY_LAND_HYPSOMETRY: CentiScalar = CentiScalar(100);
+
+/// The warp and the ridges of the terrain layouts before params version
+/// 6: none (the features are kept at the defaults and unused).
+pub const LEGACY_WARP_STRENGTH: CentiScalar = CentiScalar(0);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_WARP_FEATURES: CentiScalar = CentiScalar(600);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_RIDGE_STRENGTH: CentiScalar = CentiScalar(0);
+/// See [`LEGACY_WARP_STRENGTH`].
+pub const LEGACY_RIDGE_FEATURES: CentiScalar = CentiScalar(500);
+
 /// The params version the stages write: the current layout of the
-/// terrain block (version 5, the recipe surface). A world without the
+/// terrain block (version 6, the land's shape). A world without the
 /// terrain block keeps the older, structure-derived versions.
-pub const PARAMS_VERSION: u32 = 5;
+pub const PARAMS_VERSION: u32 = 6;
 
 /// Hydraulic erosion tuning (the thermal pass is deterministic and
 /// keeps port constants).
@@ -114,8 +158,8 @@ pub struct ErosionParams {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GenerationParams {
     /// Version of the parameters structure itself: [`PARAMS_VERSION`]
-    /// (`5`) when the terrain block is present in its current layout
-    /// (`4` and `2` are its older layouts), `3` when only the hydrology
+    /// (`6`) when the terrain block is present in its current layout
+    /// (`5`, `4`, and `2` are its older layouts), `3` when only the hydrology
     /// block is, `1` when only the climate block is, `0` for the bare
     /// seed.
     pub params_version: u32,

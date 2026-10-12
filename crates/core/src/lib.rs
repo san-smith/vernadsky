@@ -60,7 +60,8 @@ pub use rng::{RNG_STRATEGY, RngStreams};
 pub use schema::{
     Anchor, BiomeSection, CellRecord, ClimateParams, ClimateSection, Connectivity, ErosionParams,
     GenerationParams, GeographicWorld, GridSection, HydrologyParams, LEGACY_ISLAND_DENSITY,
-    LEGACY_LAND_RATIO, NO_INDEX, PARAMS_VERSION, RegionRecord, RiverRecord, SCHEMA_VERSION,
-    TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
+    LEGACY_LAND_HYPSOMETRY, LEGACY_LAND_RATIO, LEGACY_RIDGE_FEATURES, LEGACY_RIDGE_STRENGTH,
+    LEGACY_WARP_FEATURES, LEGACY_WARP_STRENGTH, NO_INDEX, PARAMS_VERSION, RegionRecord,
+    RiverRecord, SCHEMA_VERSION, TerrainParams, TerritoryRecord, WaterBodyKind, WaterBodyRecord,
 };
 pub use synthetic::{minimal_world, seeded_world, skeleton_world};

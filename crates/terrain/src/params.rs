@@ -16,6 +16,11 @@
 //! min_feature_cells = 8                # detail floor, cells [1, 256]
 //! land_ratio = 0.3                     # targeted land share [0.05, 0.95]
 //! island_density = 0.5                 # island lift over the lowlands [0, 3]
+//! land_hypsometry = 1.0                # land elevation curve exponent [1, 4]
+//! warp_strength = 0.0                  # domain warp reach, map widths [0, 0.3]
+//! warp_features = 6.0                  # warp field features around the map [1, 12]
+//! ridge_strength = 0.0                 # ridged ranges' height [0, 1]
+//! ridge_features = 5.0                 # ranges' features around the map [1, 12]
 //! ```
 //!
 //! The recipe surface — `land_ratio`, `island_density`, and
@@ -113,6 +118,28 @@ pub struct TerrainConfig {
     /// break the continents themselves.
     #[serde(default = "default_island_density")]
     pub island_density: f64,
+    /// The exponent of the land elevation curve: `1` spreads the land
+    /// evenly up to 6000 m, larger values crowd it into lowlands under
+    /// a few high ranges (Earth's hypsometric curve sits near `3`).
+    #[serde(default = "default_land_hypsometry")]
+    pub land_hypsometry: f64,
+    /// The reach of the domain warp, as a share of the map width: the
+    /// relief is sampled at coordinates displaced by a smooth noise
+    /// field, bending the coastlines into peninsulas, gulfs, and island
+    /// chains. `0` keeps the relief unwarped.
+    #[serde(default)]
+    pub warp_strength: f64,
+    /// The warp field's features around the map.
+    #[serde(default = "default_warp_features")]
+    pub warp_features: f64,
+    /// The height of the ridged ranges, as a share of the height scale:
+    /// long, narrow mountain chains over the land and the shallows. `0`
+    /// raises none.
+    #[serde(default)]
+    pub ridge_strength: f64,
+    /// The ranges' features around the map.
+    #[serde(default = "default_ridge_features")]
+    pub ridge_features: f64,
     /// Whether the thermal and hydraulic erosion passes run.
     #[serde(default = "default_erosion_enabled")]
     pub erosion_enabled: bool,
@@ -144,6 +171,18 @@ fn default_island_density() -> f64 {
     0.5
 }
 
+fn default_land_hypsometry() -> f64 {
+    1.0
+}
+
+fn default_warp_features() -> f64 {
+    6.0
+}
+
+fn default_ridge_features() -> f64 {
+    5.0
+}
+
 fn default_erosion_enabled() -> bool {
     true
 }
@@ -167,6 +206,11 @@ impl Default for TerrainConfig {
             min_feature_cells: default_min_feature_cells(),
             land_ratio: default_land_ratio(),
             island_density: default_island_density(),
+            land_hypsometry: default_land_hypsometry(),
+            warp_strength: 0.0,
+            warp_features: default_warp_features(),
+            ridge_strength: 0.0,
+            ridge_features: default_ridge_features(),
             erosion_enabled: default_erosion_enabled(),
             droplets_per_hundred_cells: default_droplets(),
             power: default_power(),
@@ -208,6 +252,11 @@ impl TerrainConfig {
             min_feature_cells: self.min_feature_cells,
             land_ratio: centi("land_ratio", self.land_ratio, 0.05..=0.95)?,
             island_density: centi("island_density", self.island_density, 0.0..=3.0)?,
+            land_hypsometry: centi("land_hypsometry", self.land_hypsometry, 1.0..=4.0)?,
+            warp_strength: centi("warp_strength", self.warp_strength, 0.0..=0.3)?,
+            warp_features: centi("warp_features", self.warp_features, 1.0..=12.0)?,
+            ridge_strength: centi("ridge_strength", self.ridge_strength, 0.0..=1.0)?,
+            ridge_features: centi("ridge_features", self.ridge_features, 1.0..=12.0)?,
         })
     }
 }
@@ -259,6 +308,14 @@ mod tests {
         assert_eq!(params.min_feature_cells, 8);
         assert_eq!(params.land_ratio, vernadsky_core::LEGACY_LAND_RATIO);
         assert_eq!(params.island_density, vernadsky_core::LEGACY_ISLAND_DENSITY);
+        assert_eq!(
+            params.land_hypsometry,
+            vernadsky_core::LEGACY_LAND_HYPSOMETRY
+        );
+        assert_eq!(params.warp_strength, vernadsky_core::LEGACY_WARP_STRENGTH);
+        assert_eq!(params.warp_features, vernadsky_core::LEGACY_WARP_FEATURES);
+        assert_eq!(params.ridge_strength, vernadsky_core::LEGACY_RIDGE_STRENGTH);
+        assert_eq!(params.ridge_features, vernadsky_core::LEGACY_RIDGE_FEATURES);
     }
 
     #[test]
@@ -284,6 +341,32 @@ features_across = 0.7
             from_toml_str("island_density = 3.5\n"),
             Err(ParamsError::OutOfDomain {
                 field: "island_density",
+                ..
+            })
+        ));
+        assert_eq!(
+            from_toml_str("land_hypsometry = 3.0\n")
+                .expect("valid document")
+                .land_hypsometry,
+            CentiScalar(300)
+        );
+        let shaped =
+            from_toml_str("warp_strength = 0.15\nridge_strength = 0.5\nridge_features = 4.0\n")
+                .expect("valid document");
+        assert_eq!(shaped.warp_strength, CentiScalar(15));
+        assert_eq!(shaped.ridge_strength, CentiScalar(50));
+        assert_eq!(shaped.ridge_features, CentiScalar(400));
+        assert!(matches!(
+            from_toml_str("warp_strength = 0.5\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "warp_strength",
+                ..
+            })
+        ));
+        assert!(matches!(
+            from_toml_str("land_hypsometry = 0.5\n"),
+            Err(ParamsError::OutOfDomain {
+                field: "land_hypsometry",
                 ..
             })
         ));

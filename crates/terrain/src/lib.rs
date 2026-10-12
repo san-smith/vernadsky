@@ -13,7 +13,14 @@
 //!
 //! 1. **Base noise**: 3D fBm OpenSimplex2 (FastNoiseLite) sampled on a
 //!    cylinder for x-seamlessness, seeded from the [`STREAM_HEIGHTMAP`]
-//!    stream, remapped to `[0, 1]`.
+//!    stream, remapped to `[0, 1]`. With a warp configured, the sample
+//!    coordinates are displaced by two smooth fBm fields
+//!    ([`STREAM_WARP_X`], [`STREAM_WARP_Y`], two octaves), the reach a
+//!    share of the map width: the coastlines bend into peninsulas,
+//!    gulfs, and island chains around solid cores instead of rounded
+//!    blobs. With ranges configured, a ridged
+//!    noise ([`STREAM_RIDGES`]), sampled through the same warp, raises
+//!    narrow mountain chains over the land and the shallows.
 //! 2. **Island effect**: a second noise (stream [`STREAM_ISLANDS`])
 //!    lifts low-lying cells by the configured island density,
 //!    scattering islands across the oceans (`0` disables the layer).
@@ -37,6 +44,12 @@
 //!    grid and target.
 //! 9. **Physical hand-off**: `meters = (n − 0.5) · 12 000` (sea level
 //!    `0.5 ⇔ 0 m`), quantized to `HeightM`; `is_water ⇔ meters ≤ 0`.
+//!    Above the sea level the land hypsometry bends the curve:
+//!    `meters = (2(n − 0.5))^k · 6000` with the configured exponent `k`
+//!    (`1` is the linear curve), at least one meter where the linear
+//!    curve keeps the land. The curve is monotonic and fixes the sea
+//!    level, so the coastline and the water stay where they are; only
+//!    the land's elevations crowd toward the lowlands.
 //!
 //! The stage consumes randomness from exactly three named streams;
 //! coming online shifts no other stream, and identical worlds with
@@ -48,9 +61,10 @@
 //! [`ErosionParams`] in `vernadsky_core`): the port defaults are one
 //! percent of the map area as water drops, erosion power `0.02`, and a
 //! talus angle of `120 m`. It also carries the map-space feature count
-//! and detail floor and the recipe surface — the land share and the
-//! island density — through which consumers shape world types. The
-//! stage installs its parameters into the export (params version 5)
+//! and detail floor and the recipe surface — the land share, the
+//! island density, and the land hypsometry — through which consumers
+//! shape world types. The stage installs its parameters into the
+//! export (params version 6)
 //! and a TOML configuration is available through the `params` module
 //! ([`TerrainConfig`]).
 //!
@@ -69,7 +83,7 @@
 //!
 //!     let land = world.grid.cells.iter().filter(|cell| !cell.is_water).count();
 //!     assert!(land > 0, "the targeted land ratio keeps land on the map");
-//!     assert_eq!(world.params.params_version, 5);
+//!     assert_eq!(world.params.params_version, 6);
 //!     Ok(())
 //! }
 //! ```
@@ -95,7 +109,23 @@ pub const STREAM_HEIGHTMAP: &str = "heightmap";
 pub const STREAM_ISLANDS: &str = "terrain.islands";
 /// Stream name of the hydraulic erosion drops.
 pub const STREAM_EROSION: &str = "terrain.erosion";
+/// Stream name of the domain warp's x field.
+pub const STREAM_WARP_X: &str = "terrain.warp.x";
+/// Stream name of the domain warp's y field.
+pub const STREAM_WARP_Y: &str = "terrain.warp.y";
+/// Stream name of the ridged ranges.
+pub const STREAM_RIDGES: &str = "terrain.ridges";
 
+/// The octave budget of the warp field: two octaves bend the continents
+/// into peninsulas and gulfs and keep their cores solid; more octaves
+/// fray every coast alike into a lace no real continent shows.
+const WARP_OCTAVES: i32 = 2;
+/// The base height above which the ridged ranges start to rise.
+const RIDGE_FLOOR: f64 = 0.40;
+/// The span of base height over which the ranges reach full height:
+/// the ranges stand on the land and the shallows, never in the deep
+/// ocean.
+const RIDGE_SPAN: f64 = 0.25;
 /// The island noise spans this multiple of the base feature count
 /// across the map (the mapgen port ratio `0.015 / 0.005`).
 const ISLAND_FREQUENCY_RATIO: f32 = 3.0;
@@ -196,17 +226,82 @@ pub fn generate(
     let base_wavelength = width as f32 / features;
     let octaves = effective_octaves(MAX_OCTAVES, base_wavelength, params.min_feature_cells);
     let noise = seeded_noise(streams, STREAM_HEIGHTMAP, frequency, octaves);
+    // The warp: a displacement of every sample, in cells, from two
+    // smooth fields. Without a warp the relief is sampled at the cell
+    // centres exactly as before.
+    let warp_reach = params.warp_strength.to_value() as f32 * width as f32;
+    let warp = (warp_reach > 0.0).then(|| {
+        let warp_features = params.warp_features.to_value() as f32;
+        let warp_octaves = effective_octaves(
+            WARP_OCTAVES,
+            width as f32 / warp_features,
+            params.min_feature_cells,
+        );
+        (
+            seeded_noise(
+                streams,
+                STREAM_WARP_X,
+                warp_features / width as f32,
+                warp_octaves,
+            ),
+            seeded_noise(
+                streams,
+                STREAM_WARP_Y,
+                warp_features / width as f32,
+                warp_octaves,
+            ),
+        )
+    });
+    let displaced = |x: usize, y_sample: f32| -> (f32, f32) {
+        match &warp {
+            Some((wx, wy)) => (
+                x as f32
+                    + noise_sample(wx, width, x, y_sample, cylinder_radius(width)) * warp_reach,
+                y_sample
+                    + noise_sample(wy, width, x, y_sample, cylinder_radius(width)) * warp_reach,
+            ),
+            None => (x as f32, y_sample),
+        }
+    };
     let mut heights: Vec<f64> = Vec::with_capacity(cell_count);
     for y in 0..height as usize {
         let y_sample = y as f32 + 0.5;
         for x in 0..row {
-            heights.push(normalized(noise_sample(
-                &noise,
-                width,
-                x,
-                y_sample,
-                cylinder_radius(width),
-            )));
+            let sample = if warp.is_some() {
+                let (sx, sy) = displaced(x, y_sample);
+                cylinder_sample(&noise, width, sx, sy)
+            } else {
+                noise_sample(&noise, width, x, y_sample, cylinder_radius(width))
+            };
+            heights.push(normalized(sample));
+        }
+    }
+
+    // --- 1b. Ridged ranges over the land and the shallows ---
+    let ridge_strength = params.ridge_strength.to_value();
+    if ridge_strength > 0.0 {
+        let ridge_features = params.ridge_features.to_value() as f32;
+        let mut ridges = seeded_noise(
+            streams,
+            STREAM_RIDGES,
+            ridge_features / width as f32,
+            effective_octaves(
+                MAX_OCTAVES,
+                width as f32 / ridge_features,
+                params.min_feature_cells,
+            ),
+        );
+        ridges.set_fractal_type(Some(FractalType::Ridged));
+        for y in 0..height as usize {
+            let y_sample = y as f32 + 0.5;
+            for x in 0..row {
+                let (sx, sy) = displaced(x, y_sample);
+                let ridge = normalized(cylinder_sample(&ridges, width, sx, sy));
+                let index = y * row + x;
+                let t = ((heights[index] - RIDGE_FLOOR) / RIDGE_SPAN).clamp(0.0, 1.0);
+                let mask = t * t * (3.0 - 2.0 * t);
+                heights[index] += ridge_strength * ridge.powi(3) * mask;
+            }
         }
     }
 
@@ -265,10 +360,25 @@ pub fn generate(
     apply_land_ratio_target(&mut heights, params.land_ratio.to_value());
 
     // --- 9. Physical hand-off ---
+    let hypsometry = params.land_hypsometry.to_value();
     let mut cells = Vec::with_capacity(cell_count);
     for value in &heights {
-        let meters = (value.clamp(0.0, 1.0) - 0.5) * HEIGHT_SCALE_M;
-        let height = HeightM::try_from_value(meters).map_err(TerrainError::Quantization)?;
+        let above = value.clamp(0.0, 1.0) - 0.5;
+        let linear =
+            HeightM::try_from_value(above * HEIGHT_SCALE_M).map_err(TerrainError::Quantization)?;
+        // The linear curve keeps its exact arithmetic, so the worlds of
+        // the former constant reproduce byte for byte. A bent curve
+        // starts from the linear land: a cell the linear curve keeps
+        // above the sea stays at least a meter above it, so the coast
+        // never moves.
+        let height = if linear.0 > 0 && hypsometry != 1.0 {
+            let bent =
+                HeightM::try_from_value((2.0 * above).powf(hypsometry) * 0.5 * HEIGHT_SCALE_M)
+                    .map_err(TerrainError::Quantization)?;
+            HeightM(bent.0.max(1))
+        } else {
+            linear
+        };
         // The quantized lattice is the truth: the water flag follows it,
         // so the flag and the exported height never disagree.
         let is_water = height.to_value() <= 0.0;
@@ -288,7 +398,7 @@ pub fn generate(
 
     // The terrain block is installed without clobbering the climate
     // and hydrology blocks; the params version tracks the terrain
-    // layout (5, the recipe surface).
+    // layout (6, the land hypsometry).
     let climate = world.params.climate.clone();
     let hydrology = world.params.hydrology;
     world.params = GenerationParams {
@@ -335,6 +445,15 @@ fn effective_octaves(max_octaves: i32, base_wavelength_cells: f32, min_feature_c
     let ratio = base_wavelength_cells / min_feature_cells as f32;
     let affordable = 1.0 + ratio.log2();
     affordable.floor().max(1.0).min(max_octaves.max(1) as f32) as i32
+}
+
+/// Samples the 3D noise at a (possibly displaced) map position on the
+/// x-seamless cylinder: `x` in cells along the circumference, `y` in
+/// cells down the map.
+fn cylinder_sample(noise: &FastNoiseLite, width: u32, x: f32, y: f32) -> f32 {
+    let radius = cylinder_radius(width);
+    let angle = ((x + 0.5) / width as f32) * std::f32::consts::TAU;
+    noise.get_noise_3d(radius * angle.cos(), y, radius * angle.sin())
 }
 
 /// Samples the 3D noise at a cell center on the x-seamless cylinder.
